@@ -57,8 +57,36 @@ const galleryCount = document.getElementById("galleryCount");
 const downloadStripBtn = document.getElementById("downloadStripBtn");
 const resetAllBtn = document.getElementById("resetAllBtn");
 const stripCompleteMsg = document.getElementById("stripCompleteMsg");
+const themeSelect = document.getElementById("themeSelect");
+const bgColorInput = document.getElementById("bgColorInput");
+const accentColorInput = document.getElementById("accentColorInput");
+const stripTitleInput = document.getElementById("stripTitleInput");
+const imageGallery = document.getElementById("imageGallery");
 
 let appState = "tracking";
+
+const settings = {
+  theme: "cyberpunk",
+  bgColor: "#070816",
+  accentColor: "#00e5ff",
+  stripTitle: "PuzzleCam Session",
+  puzzleImage: "camera",
+};
+
+const themeDefaults = {
+  cyberpunk: { bg: "#070816", accent: "#00e5ff" },
+  studio: { bg: "#111318", accent: "#e7eef8" },
+  sunset: { bg: "#180b22", accent: "#ffb86b" },
+  arcade: { bg: "#05050b", accent: "#7cff00" },
+};
+
+const puzzleImageChoices = [
+  { id: "camera", label: "Camera" },
+  { id: "neon", label: "Neon" },
+  { id: "studio", label: "Studio" },
+  { id: "tropical", label: "Tropic" },
+  { id: "arcade", label: "Arcade" },
+];
 
 const puzzle = {
   boardBox: null,
@@ -80,6 +108,168 @@ const shatter = {
 
 const STRIP_MAX_PHOTOS = 3;
 const galleryEntries = [];
+
+function cssVar(name) {
+  return getComputedStyle(document.body).getPropertyValue(name).trim();
+}
+
+function getAccentColor() {
+  return cssVar("--accent") || settings.accentColor;
+}
+
+function getAccentTwoColor() {
+  return cssVar("--accent-2") || "#ff3df2";
+}
+
+function getOkColor() {
+  return cssVar("--ok") || "#4ade80";
+}
+
+function getPaperColor() {
+  return cssVar("--paper") || "#f7fbff";
+}
+
+function sanitizeTitle(value) {
+  return (value || "PuzzleCam Session").trim().slice(0, 28) || "PuzzleCam Session";
+}
+
+function drawProceduralImage(targetCanvas, variant) {
+  const w = targetCanvas.width;
+  const h = targetCanvas.height;
+  const imageCtx = targetCanvas.getContext("2d");
+  const gradient = imageCtx.createLinearGradient(0, 0, w, h);
+
+  if (variant === "studio") {
+    gradient.addColorStop(0, "#f7f8fb");
+    gradient.addColorStop(1, "#8692a8");
+  } else if (variant === "tropical") {
+    gradient.addColorStop(0, "#ff7a59");
+    gradient.addColorStop(0.55, "#ffcf6b");
+    gradient.addColorStop(1, "#1fc7b6");
+  } else if (variant === "arcade") {
+    gradient.addColorStop(0, "#0a0620");
+    gradient.addColorStop(0.5, "#22145a");
+    gradient.addColorStop(1, "#06070d");
+  } else {
+    gradient.addColorStop(0, "#0b1028");
+    gradient.addColorStop(0.45, "#651fff");
+    gradient.addColorStop(1, "#00d4ff");
+  }
+
+  imageCtx.fillStyle = gradient;
+  imageCtx.fillRect(0, 0, w, h);
+
+  if (variant === "studio") {
+    imageCtx.fillStyle = "rgba(255,255,255,0.58)";
+    imageCtx.fillRect(w * 0.12, h * 0.16, w * 0.76, h * 0.62);
+    imageCtx.strokeStyle = "rgba(20,25,34,0.28)";
+    imageCtx.lineWidth = Math.max(2, w * 0.012);
+    imageCtx.strokeRect(w * 0.12, h * 0.16, w * 0.76, h * 0.62);
+    imageCtx.fillStyle = "rgba(25,30,40,0.22)";
+    imageCtx.beginPath();
+    imageCtx.arc(w * 0.34, h * 0.42, w * 0.14, 0, Math.PI * 2);
+    imageCtx.fill();
+  } else if (variant === "tropical") {
+    imageCtx.fillStyle = "rgba(255,255,255,0.8)";
+    imageCtx.beginPath();
+    imageCtx.arc(w * 0.76, h * 0.24, w * 0.13, 0, Math.PI * 2);
+    imageCtx.fill();
+    imageCtx.fillStyle = "rgba(12,91,87,0.45)";
+    for (let i = 0; i < 5; i++) {
+      imageCtx.beginPath();
+      imageCtx.ellipse(w * (0.18 + i * 0.15), h * 0.78, w * 0.12, h * 0.035, -0.5 + i * 0.25, 0, Math.PI * 2);
+      imageCtx.fill();
+    }
+  } else if (variant === "arcade") {
+    imageCtx.strokeStyle = "#7cff00";
+    imageCtx.lineWidth = Math.max(2, w * 0.01);
+    for (let x = 0; x < w; x += w / 8) {
+      imageCtx.beginPath();
+      imageCtx.moveTo(x, 0);
+      imageCtx.lineTo(w / 2 + (x - w / 2) * 0.35, h);
+      imageCtx.stroke();
+    }
+    imageCtx.strokeStyle = "#ff2bd6";
+    for (let y = h * 0.55; y < h; y += h / 10) {
+      imageCtx.beginPath();
+      imageCtx.moveTo(0, y);
+      imageCtx.lineTo(w, y);
+      imageCtx.stroke();
+    }
+  } else {
+    imageCtx.strokeStyle = "rgba(255,255,255,0.82)";
+    imageCtx.lineWidth = Math.max(2, w * 0.012);
+    for (let i = 0; i < 6; i++) {
+      imageCtx.beginPath();
+      imageCtx.arc(w * (0.18 + i * 0.13), h * (0.28 + (i % 2) * 0.25), w * 0.12, 0, Math.PI * 2);
+      imageCtx.stroke();
+    }
+    imageCtx.fillStyle = "rgba(255,61,242,0.55)";
+    imageCtx.fillRect(w * 0.16, h * 0.68, w * 0.68, h * 0.08);
+  }
+
+}
+
+function createProceduralCanvas(width, height, variant) {
+  const generated = document.createElement("canvas");
+  generated.width = width;
+  generated.height = height;
+  drawProceduralImage(generated, variant);
+  return generated;
+}
+
+function applyTheme(theme, useDefaults = false) {
+  settings.theme = theme;
+  document.body.className = `theme-${theme}`;
+  if (useDefaults && themeDefaults[theme]) {
+    settings.bgColor = themeDefaults[theme].bg;
+    settings.accentColor = themeDefaults[theme].accent;
+    bgColorInput.value = settings.bgColor;
+    accentColorInput.value = settings.accentColor;
+  }
+  document.body.style.setProperty("--bg", settings.bgColor);
+  document.body.style.setProperty("--accent", settings.accentColor);
+}
+
+function renderImageGallery() {
+  if (!imageGallery) return;
+  imageGallery.innerHTML = "";
+
+  puzzleImageChoices.forEach((choice) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "image-choice";
+    button.title = choice.label;
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-label", choice.label);
+
+    const preview = document.createElement("canvas");
+    preview.width = 120;
+    preview.height = 120;
+    if (choice.id === "camera") {
+      const previewCtx = preview.getContext("2d");
+      previewCtx.fillStyle = "#070816";
+      previewCtx.fillRect(0, 0, preview.width, preview.height);
+      previewCtx.strokeStyle = settings.accentColor;
+      previewCtx.lineWidth = 5;
+      previewCtx.strokeRect(22, 32, 76, 50);
+      previewCtx.beginPath();
+      previewCtx.arc(60, 57, 16, 0, Math.PI * 2);
+      previewCtx.stroke();
+    } else {
+      drawProceduralImage(preview, choice.id);
+    }
+
+    button.appendChild(preview);
+    button.classList.toggle("is-selected", settings.puzzleImage === choice.id);
+    button.setAttribute("aria-selected", settings.puzzleImage === choice.id ? "true" : "false");
+    button.addEventListener("click", () => {
+      settings.puzzleImage = choice.id;
+      renderImageGallery();
+    });
+    imageGallery.appendChild(button);
+  });
+}
 
 function addToGallery(snapshotCanvas) {
   if (galleryEntries.length >= STRIP_MAX_PHOTOS) return;
@@ -127,6 +317,7 @@ function downloadPhotoStrip() {
 
   const totalH =
     STRIP_FILE_BORDER * 2 +
+    28 +
     scaledHeights.reduce((sum, h) => sum + h, 0) +
     STRIP_FILE_GAP * (entries.length - 1);
   const totalW = targetW + STRIP_FILE_BORDER * 2;
@@ -139,7 +330,13 @@ function downloadPhotoStrip() {
   stripCtx.fillStyle = STRIP_FILE_BG;
   stripCtx.fillRect(0, 0, totalW, totalH);
 
-  let cursorY = STRIP_FILE_BORDER;
+  stripCtx.fillStyle = "#10131f";
+  stripCtx.font = "700 28px Inter, sans-serif";
+  stripCtx.textAlign = "center";
+  stripCtx.textBaseline = "top";
+  stripCtx.fillText(sanitizeTitle(settings.stripTitle), totalW / 2, 10);
+
+  let cursorY = STRIP_FILE_BORDER + 28;
   entries.forEach((entry, i) => {
     const h = scaledHeights[i];
     stripCtx.drawImage(entry.canvas, STRIP_FILE_BORDER, cursorY, targetW, h);
@@ -151,7 +348,8 @@ function downloadPhotoStrip() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `puzzlecam_tira_${Date.now()}.png`;
+    const fileTitle = sanitizeTitle(settings.stripTitle).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    link.download = `${fileTitle || "puzzlecam"}_strip_${Date.now()}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -170,7 +368,7 @@ function resetEverything() {
   hideStripComplete();
   updateStripDownloadAvailability();
   resetPuzzleOnly();
-  statusText.textContent = "todo reiniciado";
+  statusText.textContent = "all reset";
 }
 
 function renderGalleryThumb(snapshotCanvas, index) {
@@ -186,7 +384,7 @@ function renderGalleryThumb(snapshotCanvas, index) {
 
   const label = document.createElement("div");
   label.className = "print-label";
-  label.textContent = `#${String(index).padStart(2, "0")}`;
+  label.textContent = `${sanitizeTitle(settings.stripTitle)} #${String(index).padStart(2, "0")}`;
 
   print.appendChild(thumbCanvas);
   print.appendChild(label);
@@ -271,7 +469,7 @@ async function initHandLandmarker() {
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
       ),
       LOAD_TIMEOUT_MS,
-      "Tiempo de espera agotado cargando el runtime de MediaPipe (WASM). Revisa tu conexión a internet o si cdn.jsdelivr.net está bloqueado."
+      "Timed out loading the MediaPipe runtime (WASM). Check your connection or whether cdn.jsdelivr.net is blocked."
     );
   } catch (err) {
     throw err;
@@ -296,7 +494,7 @@ async function initHandLandmarker() {
     );
     return handLandmarker;
   } catch (gpuErr) {
-    console.warn("[PuzzleCam] Falló con delegate GPU, reintentando con CPU…", gpuErr);
+    console.warn("[PuzzleCam] GPU delegate failed, retrying with CPU...", gpuErr);
   }
 
   try {
@@ -314,7 +512,7 @@ async function initHandLandmarker() {
         minTrackingConfidence: 0.6,
       }),
       LOAD_TIMEOUT_MS,
-      "Tiempo de espera agotado descargando el modelo HandLandmarker (~10MB) incluso con CPU. Revisa tu conexión o si storage.googleapis.com está bloqueado en tu red."
+      "Timed out downloading the HandLandmarker model (~10MB), even with CPU. Check your connection or whether storage.googleapis.com is blocked."
     );
     return handLandmarker;
   } catch (cpuErr) {
@@ -401,7 +599,7 @@ function drawCountdownOverlay(box) {
   applyBWInsideBox(box);
 
   ctx.save();
-  ctx.strokeStyle = "#f5c518";
+  ctx.strokeStyle = getAccentColor();
   ctx.lineWidth = 3;
   ctx.strokeRect(box.x, box.y, box.width, box.height);
 
@@ -413,13 +611,13 @@ function drawCountdownOverlay(box) {
   ctx.fillRect(box.x, box.y, box.width, box.height);
 
   ctx.font = `${Math.max(48, Math.min(box.width, box.height) * 0.4)}px 'IBM Plex Mono', monospace`;
-  ctx.fillStyle = "#f5c518";
+  ctx.fillStyle = getAccentColor();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(String(n), cx, cy);
   ctx.restore();
 
-  statusText.textContent = `capturando en ${n}…`;
+  statusText.textContent = `capturing in ${n}...`;
 }
 
 function gaussianNoise(std) {
@@ -466,11 +664,16 @@ function finishCountdownAndCapture(box) {
   cropCanvas.width = Math.max(1, Math.round(box.width));
   cropCanvas.height = Math.max(1, Math.round(box.height));
   const cropCtx = cropCanvas.getContext("2d");
-  cropCtx.drawImage(
-    mirroredFrame,
-    box.x, box.y, box.width, box.height,
-    0, 0, cropCanvas.width, cropCanvas.height
-  );
+  if (settings.puzzleImage === "camera") {
+    cropCtx.drawImage(
+      mirroredFrame,
+      box.x, box.y, box.width, box.height,
+      0, 0, cropCanvas.width, cropCanvas.height
+    );
+  } else {
+    const selectedImage = createProceduralCanvas(cropCanvas.width, cropCanvas.height, settings.puzzleImage);
+    cropCtx.drawImage(selectedImage, 0, 0, cropCanvas.width, cropCanvas.height);
+  }
 
   const fullImageData = cropCtx.getImageData(0, 0, cropCanvas.width, cropCanvas.height);
   applyPhotoboothEffect(fullImageData);
@@ -720,7 +923,7 @@ function drawBoardAndPieces() {
   ctx.restore();
 
   ctx.save();
-  ctx.strokeStyle = "rgba(245,197,24,0.18)";
+  ctx.strokeStyle = `${getAccentColor()}33`;
   ctx.lineWidth = 1;
   for (let i = 1; i < GRID; i++) {
     ctx.beginPath();
@@ -739,31 +942,31 @@ function drawBoardAndPieces() {
   for (const piece of sorted) {
     ctx.save();
     if (piece.dragging) {
-      ctx.shadowColor = "rgba(245,197,24,0.9)";
+      ctx.shadowColor = getAccentColor();
       ctx.shadowBlur = 14;
     }
     ctx.drawImage(piece.canvas, piece.x, piece.y, piece.w, piece.h);
-    ctx.strokeStyle = piece.placed ? "#5fae6e" : "rgba(234,229,214,0.5)";
+    ctx.strokeStyle = piece.placed ? getOkColor() : `${getPaperColor()}99`;
     ctx.lineWidth = piece.dragging ? 3 : 1.5;
     ctx.strokeRect(piece.x, piece.y, piece.w, piece.h);
     ctx.restore();
   }
 
   ctx.save();
-  ctx.strokeStyle = puzzle.solved ? "#5fae6e" : "#f5c518";
+  ctx.strokeStyle = puzzle.solved ? getOkColor() : getAccentColor();
   ctx.lineWidth = 3;
   ctx.strokeRect(box.x, box.y, box.width, box.height);
   ctx.restore();
 
   if (puzzle.solved) {
     ctx.save();
-    ctx.fillStyle = "rgba(95,174,110,0.15)";
+    ctx.fillStyle = `${getOkColor()}26`;
     ctx.fillRect(box.x, box.y, box.width, box.height);
     ctx.font = `${Math.max(20, box.width * 0.07)}px 'IBM Plex Mono', monospace`;
-    ctx.fillStyle = "#5fae6e";
+    ctx.fillStyle = getOkColor();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("¡COMPLETO! — puño para guardar", box.x + box.width / 2, box.y + box.height / 2);
+    ctx.fillText("COMPLETE - make a fist to save", box.x + box.width / 2, box.y + box.height / 2);
     ctx.restore();
   }
 }
@@ -801,7 +1004,7 @@ function applyBWInsideBox(box) {
 
 function drawLiveFrameOverlay(box) {
   ctx.save();
-  ctx.strokeStyle = "#f5c518";
+  ctx.strokeStyle = getAccentColor();
   ctx.lineWidth = 3;
   ctx.strokeRect(box.x, box.y, box.width, box.height);
 
@@ -964,7 +1167,7 @@ function finishShatter() {
   shatter.fragments = [];
   if (shatter.pendingCanvas) {
     addToGallery(shatter.pendingCanvas);
-    statusText.textContent = "¡guardado en la tira!";
+    statusText.textContent = "saved to strip";
     shatter.pendingCanvas = null;
   }
   resetPuzzleOnly();
@@ -972,7 +1175,7 @@ function finishShatter() {
 
 function handleFistReset() {
   if (appState !== "puzzle") {
-    statusText.textContent = "reiniciado (puño)";
+    statusText.textContent = "reset by fist";
     resetPuzzleOnly();
     return;
   }
@@ -984,7 +1187,7 @@ function handleFistReset() {
     shatter.pendingCanvas = puzzle.fullPhotoboothCanvas;
     startShatter(puzzle.fullPhotoboothCanvas, puzzle.boardBox);
   } else {
-    statusText.textContent = "reiniciado (puño)";
+    statusText.textContent = "reset by fist";
     resetPuzzleOnly();
   }
 }
@@ -995,7 +1198,7 @@ let fistHoldCounter = 0;
 function processResults(result) {
   if (appState === "shattering") {
     updateAndDrawShatter();
-    statusText.textContent = "guardando…";
+    statusText.textContent = "saving...";
     return;
   }
 
@@ -1018,8 +1221,8 @@ function processResults(result) {
         drawLiveFrameOverlay(lastSeenFrame.box);
       }
       statusText.textContent = isStripFull()
-        ? "tira completa — descarga o reinicia"
-        : "buscando manos…";
+        ? "strip complete - download or reset"
+        : "looking for hands...";
       return;
     }
 
@@ -1033,8 +1236,8 @@ function processResults(result) {
       updateProgressBadge();
       drawBoardAndPieces();
       statusText.textContent = puzzle.solved
-        ? "¡rompecabezas completo! cierra el puño para guardarlo"
-        : "arma el rompecabezas con pinch";
+        ? "puzzle complete - make a fist to save"
+        : "solve the puzzle with pinch";
       return;
     }
 
@@ -1058,7 +1261,7 @@ function processResults(result) {
 
   if (appState === "tracking") {
     if (isStripFull()) {
-      statusText.textContent = "tira completa — descarga o reinicia";
+      statusText.textContent = "strip complete - download or reset";
       return;
     }
     if (handsLandmarks.length === 2) {
@@ -1081,7 +1284,7 @@ function processResults(result) {
           freezeGate.since = performance.now();
         }
         statusDot.className = "status-dot armed";
-        statusText.textContent = "sostén el pinch…";
+        statusText.textContent = "hold the pinch...";
 
         if (performance.now() - freezeGate.since > FREEZE_HOLD_MS) {
           freezeGate.holding = false;
@@ -1134,9 +1337,9 @@ function processResults(result) {
 
     statusText.textContent = puzzle.solved
       ? (fistHoldCounter > 0
-          ? `guardando… sostén el puño (${fistHoldCounter}/${FIST_HOLD_FRAMES})`
-          : "¡rompecabezas completo! cierra el puño para guardarlo")
-      : "arma el rompecabezas con pinch";
+          ? `saving... hold fist (${fistHoldCounter}/${FIST_HOLD_FRAMES})`
+          : "puzzle complete - make a fist to save")
+      : "solve the puzzle with pinch";
   }
 }
 
@@ -1164,10 +1367,42 @@ function showLoaderError(message) {
 function resetLoaderUI() {
   loadingOverlay.classList.remove("hidden");
   loaderText.style.color = "";
-  loaderText.textContent = "cargando modelo HandLandmarker…";
+  loaderText.textContent = "loading HandLandmarker model...";
   loaderRetry.classList.add("hidden");
   errorBanner.style.display = "none";
 }
+
+if (themeSelect) {
+  themeSelect.addEventListener("change", () => {
+    applyTheme(themeSelect.value, true);
+    renderImageGallery();
+  });
+}
+
+if (bgColorInput) {
+  bgColorInput.addEventListener("input", () => {
+    settings.bgColor = bgColorInput.value;
+    document.body.style.setProperty("--bg", settings.bgColor);
+  });
+}
+
+if (accentColorInput) {
+  accentColorInput.addEventListener("input", () => {
+    settings.accentColor = accentColorInput.value;
+    document.body.style.setProperty("--accent", settings.accentColor);
+    renderImageGallery();
+  });
+}
+
+if (stripTitleInput) {
+  stripTitleInput.addEventListener("input", () => {
+    settings.stripTitle = sanitizeTitle(stripTitleInput.value);
+    stripTitleInput.value = settings.stripTitle;
+  });
+}
+
+applyTheme(settings.theme);
+renderImageGallery();
 
 async function boot() {
   resetLoaderUI();
@@ -1176,7 +1411,7 @@ async function boot() {
   const watchdogMs = (LOAD_TIMEOUT_MS * 2) + 5000;
   const watchdog = setTimeout(() => {
     if (!settled) {
-      showLoaderError("La carga está tardando demasiado. Pulsa reintentar o revisa tu conexión.");
+      showLoaderError("Loading is taking too long. Retry or check your connection.");
     }
   }, watchdogMs);
 
@@ -1190,15 +1425,15 @@ async function boot() {
     settled = true;
     clearTimeout(watchdog);
     loadingOverlay.classList.add("hidden");
-    statusText.textContent = "listo";
+    statusText.textContent = "ready";
     requestAnimationFrame(renderLoop);
   } catch (err) {
     settled = true;
     clearTimeout(watchdog);
     if (err && err.name === "NotAllowedError") {
-      showLoaderError("Permiso de cámara denegado. Habilítalo en la configuración del navegador y pulsa reintentar.");
+      showLoaderError("Camera permission was denied. Enable it in your browser settings, then retry.");
     } else if (err && err.name === "NotFoundError") {
-      showLoaderError("No se encontró ninguna webcam disponible.");
+      showLoaderError("No webcam was found.");
     } else {
       showLoaderError((err && err.message) || "Error iniciando la app.");
     }
@@ -1217,7 +1452,7 @@ if (downloadStripBtn) {
 if (resetAllBtn) {
   resetAllBtn.addEventListener("click", () => {
     const confirmed = window.confirm(
-      "¿Seguro que quieres borrar toda la tira de fotos y empezar de nuevo?"
+      "Clear the whole photo strip and start over?"
     );
     if (confirmed) resetEverything();
   });

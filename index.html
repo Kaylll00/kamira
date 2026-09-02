@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Puzzle Cam — Gesture Capture</title>
+<title>Puzzle Cam - Gesture Capture</title>
 <link rel="stylesheet" href="css/styles.css" />
 </head>
-<body>
+<body class="theme-cyberpunk">
 
 <div id="app">
 
@@ -15,21 +15,21 @@
     <canvas id="sceneCanvas"></canvas>
 
     <div class="hud-top">
-      <div class="brand">PUZZLE·CAM <small>hand-frame capture</small></div>
+      <div class="brand">PUZZLE.CAM <small>hand-frame capture</small></div>
       <div class="status-pill">
         <span id="statusDot" class="status-dot"></span>
-        <span id="statusText">iniciando cámara…</span>
+        <span id="statusText">starting camera...</span>
       </div>
     </div>
 
     <div id="progressBadge" class="progress-badge">
-      <span id="progressText">0 / 9 piezas colocadas</span>
+      <span id="progressText">0 / 9 pieces placed</span>
     </div>
 
     <div id="loadingOverlay">
-      <div class="loader-text" id="loaderText">cargando modelo HandLandmarker…</div>
+      <div class="loader-text" id="loaderText">loading HandLandmarker model...</div>
       <div class="loader-bar"></div>
-      <button type="button" id="loaderRetry" class="loader-retry hidden">reintentar</button>
+      <button type="button" id="loaderRetry" class="loader-retry hidden">Retry</button>
     </div>
 
     <div id="errorBanner"></div>
@@ -37,23 +37,56 @@
 
   <aside id="gallery">
     <div class="gallery-head">
-      <span class="gallery-title">Tira</span>
+      <span class="gallery-title">Capture Strip</span>
       <span class="gallery-count" id="galleryCount">0 / 3</span>
     </div>
 
+    <section class="control-panel" aria-label="Personalization controls">
+      <div class="control-block">
+        <label class="control-label" for="themeSelect">Theme</label>
+        <select id="themeSelect" class="control-input">
+          <option value="cyberpunk">Neon cyberpunk</option>
+          <option value="studio">Minimalist studio</option>
+          <option value="sunset">Sunset / tropical</option>
+          <option value="arcade">Retro arcade</option>
+        </select>
+      </div>
+
+      <div class="control-row">
+        <div class="control-block">
+          <label class="control-label" for="bgColorInput">Background</label>
+          <input id="bgColorInput" class="color-input" type="color" value="#070816" />
+        </div>
+        <div class="control-block">
+          <label class="control-label" for="accentColorInput">Accent</label>
+          <input id="accentColorInput" class="color-input" type="color" value="#00e5ff" />
+        </div>
+      </div>
+
+      <div class="control-block">
+        <label class="control-label" for="stripTitleInput">Strip title</label>
+        <input id="stripTitleInput" class="control-input" type="text" maxlength="28" value="PuzzleCam Session" />
+      </div>
+
+      <div class="control-block">
+        <div class="control-label">Puzzle image</div>
+        <div id="imageGallery" class="image-gallery" role="listbox" aria-label="Puzzle image gallery"></div>
+      </div>
+    </section>
+
     <div class="strip-complete-msg" id="stripCompleteMsg">
-      tira completa — descarga o reinicia para seguir
+      strip complete - download or reset to keep going
     </div>
 
     <div id="galleryStrip" class="gallery-strip">
       <div class="gallery-empty" id="galleryEmpty">
-        Tus rompecabezas completados<br/>aparecerán aquí.
+        Your completed puzzles<br/>will appear here.
       </div>
     </div>
 
     <div class="gallery-actions">
-      <button type="button" id="downloadStripBtn" class="gallery-action-btn" disabled>descargar tira</button>
-      <button type="button" id="resetAllBtn" class="gallery-action-btn gallery-action-btn--danger">reiniciar todo</button>
+      <button type="button" id="downloadStripBtn" class="gallery-action-btn" disabled>Download strip</button>
+      <button type="button" id="resetAllBtn" class="gallery-action-btn gallery-action-btn--danger">Reset all</button>
     </div>
   </aside>
 
