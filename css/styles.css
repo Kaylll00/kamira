@@ -64,9 +64,106 @@ html,body{
     linear-gradient(135deg, var(--bg), var(--bg-2));
 }
 
+body{
+  position:relative;
+}
+
+body::before,
+body::after{
+  content:"";
+  position:fixed;
+  inset:-18%;
+  z-index:-1;
+  pointer-events:none;
+  opacity:0;
+}
+
+body::before{
+  background:
+    radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 22%),
+    radial-gradient(circle at 78% 18%, color-mix(in srgb, var(--accent-2) 38%, transparent), transparent 20%),
+    radial-gradient(circle at 44% 78%, color-mix(in srgb, var(--violet) 34%, transparent), transparent 26%);
+  filter:blur(30px) saturate(150%);
+  transform:scale(1.08);
+  animation:backdropDrift 12s ease-in-out infinite alternate;
+}
+
+body.fx-aurora::before{
+  opacity:0.92;
+}
+
+body.fx-prism::after{
+  opacity:0.26;
+  inset:0;
+  background:
+    linear-gradient(115deg, transparent 0 42%, color-mix(in srgb, var(--accent) 50%, transparent) 42% 44%, transparent 44% 100%),
+    linear-gradient(35deg, transparent 0 54%, color-mix(in srgb, var(--accent-2) 45%, transparent) 54% 56%, transparent 56% 100%),
+    repeating-conic-gradient(from 45deg, transparent 0 9deg, rgba(255,255,255,0.16) 9deg 10deg, transparent 10deg 18deg);
+  mix-blend-mode:screen;
+  filter:blur(0.2px);
+}
+
+body.fx-static::after{
+  opacity:0.18;
+  inset:0;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255,255,255,0.32) 0 1px, transparent 1px),
+    radial-gradient(circle at 80% 34%, color-mix(in srgb, var(--accent) 70%, transparent) 0 1px, transparent 1px),
+    radial-gradient(circle at 42% 76%, color-mix(in srgb, var(--accent-2) 70%, transparent) 0 1px, transparent 1px);
+  background-size:13px 13px, 19px 19px, 23px 23px;
+  animation:staticShift 0.24s steps(2,end) infinite;
+}
+
+body.fx-scanlines::after{
+  opacity:0.34;
+  inset:0;
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 18%, transparent), transparent),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.13) 0 1px, transparent 1px 7px);
+  mix-blend-mode:screen;
+  animation:scanSweep 5s linear infinite;
+}
+
+body.fx-hypno::after{
+  opacity:0.22;
+  background:
+    repeating-radial-gradient(circle at 50% 50%, transparent 0 18px, color-mix(in srgb, var(--accent) 40%, transparent) 19px 21px, transparent 22px 38px),
+    repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--accent-2) 18%, transparent) 0 7deg, transparent 7deg 16deg);
+  mix-blend-mode:screen;
+  filter:blur(0.6px);
+  animation:hypnoTurn 18s linear infinite;
+}
+
+body.fx-none::before,
+body.fx-none::after{
+  display:none;
+}
+
+@keyframes backdropDrift{
+  0%{ transform:translate3d(-1.5%, -1%, 0) scale(1.08); }
+  100%{ transform:translate3d(1.5%, 1%, 0) scale(1.14); }
+}
+
+@keyframes staticShift{
+  0%{ transform:translate(0,0); }
+  100%{ transform:translate(9px,-7px); }
+}
+
+@keyframes scanSweep{
+  0%{ transform:translateX(-24%); }
+  100%{ transform:translateX(24%); }
+}
+
+@keyframes hypnoTurn{
+  0%{ transform:rotate(0deg) scale(1.05); }
+  100%{ transform:rotate(360deg) scale(1.05); }
+}
+
 button,input,select{ font:inherit; }
 
 #app{
+  position:relative;
+  z-index:1;
   display:flex;
   width:100vw;
   height:100vh;

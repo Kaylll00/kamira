@@ -58,6 +58,7 @@ const downloadStripBtn = document.getElementById("downloadStripBtn");
 const resetAllBtn = document.getElementById("resetAllBtn");
 const stripCompleteMsg = document.getElementById("stripCompleteMsg");
 const themeSelect = document.getElementById("themeSelect");
+const backgroundFxSelect = document.getElementById("backgroundFxSelect");
 const bgColorInput = document.getElementById("bgColorInput");
 const accentColorInput = document.getElementById("accentColorInput");
 const stripTitleInput = document.getElementById("stripTitleInput");
@@ -69,6 +70,7 @@ const settings = {
   theme: "cyberpunk",
   bgColor: "#070816",
   accentColor: "#00e5ff",
+  backgroundFx: "aurora",
   stripTitle: "PuzzleCam Session",
   puzzleImage: "camera",
 };
@@ -87,6 +89,12 @@ const puzzleImageChoices = [
   { id: "tropical", label: "Tropic" },
   { id: "arcade", label: "Arcade" },
 ];
+
+const cameraFx = {
+  frameCanvas: document.createElement("canvas"),
+  frameCtx: null,
+};
+cameraFx.frameCtx = cameraFx.frameCanvas.getContext("2d", { willReadFrequently: true });
 
 const puzzle = {
   boardBox: null,
@@ -220,7 +228,8 @@ function createProceduralCanvas(width, height, variant) {
 
 function applyTheme(theme, useDefaults = false) {
   settings.theme = theme;
-  document.body.className = `theme-${theme}`;
+  document.body.classList.remove("theme-cyberpunk", "theme-studio", "theme-sunset", "theme-arcade");
+  document.body.classList.add(`theme-${theme}`);
   if (useDefaults && themeDefaults[theme]) {
     settings.bgColor = themeDefaults[theme].bg;
     settings.accentColor = themeDefaults[theme].accent;
@@ -229,6 +238,12 @@ function applyTheme(theme, useDefaults = false) {
   }
   document.body.style.setProperty("--bg", settings.bgColor);
   document.body.style.setProperty("--accent", settings.accentColor);
+}
+
+function applyBackgroundFx(effect) {
+  settings.backgroundFx = effect;
+  document.body.classList.remove("fx-aurora", "fx-prism", "fx-static", "fx-scanlines", "fx-hypno", "fx-none");
+  document.body.classList.add(`fx-${effect}`);
 }
 
 function renderImageGallery() {
@@ -654,11 +669,7 @@ function finishCountdownAndCapture(box) {
   mirroredFrame.width = canvas.width;
   mirroredFrame.height = canvas.height;
   const mirroredCtx = mirroredFrame.getContext("2d");
-  mirroredCtx.save();
-  mirroredCtx.translate(mirroredFrame.width, 0);
-  mirroredCtx.scale(-1, 1);
-  mirroredCtx.drawImage(videoEl, 0, 0, mirroredFrame.width, mirroredFrame.height);
-  mirroredCtx.restore();
+  drawCameraFrame(mirroredCtx, mirroredFrame.width, mirroredFrame.height);
 
   const cropCanvas = document.createElement("canvas");
   cropCanvas.width = Math.max(1, Math.round(box.width));
@@ -983,11 +994,134 @@ function updateProgressBadge() {
 }
 
 function drawVideoFrame() {
-  ctx.save();
-  ctx.translate(canvas.width, 0);
-  ctx.scale(-1, 1);
-  ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-  ctx.restore();
+  drawCameraFrame(ctx, canvas.width, canvas.height);
+}
+
+function ensureCameraFxCanvas(width, height) {
+  if (cameraFx.frameCanvas.width !== width || cameraFx.frameCanvas.height !== height) {
+    cameraFx.frameCanvas.width = width;
+    cameraFx.frameCanvas.height = height;
+  }
+}
+
+function drawMirroredVideo(targetCtx, width, height) {
+  targetCtx.save();
+  targetCtx.translate(width, 0);
+  targetCtx.scale(-1, 1);
+  targetCtx.drawImage(videoEl, 0, 0, width, height);
+  targetCtx.restore();
+}
+
+function drawSharpPortraitWindow(targetCtx, width, height) {
+  targetCtx.save();
+  targetCtx.beginPath();
+  targetCtx.ellipse(width * 0.5, height * 0.53, width * 0.24, height * 0.46, 0, 0, Math.PI * 2);
+  targetCtx.clip();
+  drawMirroredVideo(targetCtx, width, height);
+  targetCtx.restore();
+}
+
+function drawCameraPatternOverlay(targetCtx, width, height, effect) {
+  targetCtx.save();
+  targetCtx.globalCompositeOperation = "screen";
+
+  if (effect === "prism") {
+    targetCtx.globalAlpha = 0.38;
+    targetCtx.strokeStyle = getAccentColor();
+    targetCtx.lineWidth = Math.max(2, width * 0.002);
+    const step = Math.max(34, width * 0.052);
+    for (let x = -width; x < width * 1.6; x += step) {
+      targetCtx.beginPath();
+      targetCtx.moveTo(x, 0);
+      targetCtx.lineTo(x + width * 0.42, height);
+      targetCtx.stroke();
+    }
+    targetCtx.strokeStyle = getAccentTwoColor();
+    for (let y = -height * 0.2; y < height * 1.2; y += step * 0.9) {
+      targetCtx.beginPath();
+      targetCtx.moveTo(0, y);
+      targetCtx.lineTo(width, y + height * 0.18);
+      targetCtx.stroke();
+    }
+  } else if (effect === "static") {
+    targetCtx.globalAlpha = 0.22;
+    const dotSize = Math.max(1, Math.round(width / 360));
+    for (let i = 0; i < 900; i++) {
+      const isAccent = i % 5 === 0;
+      targetCtx.fillStyle = isAccent ? getAccentColor() : "rgba(255,255,255,0.9)";
+      targetCtx.fillRect(Math.random() * width, Math.random() * height, dotSize, dotSize);
+    }
+  } else if (effect === "scanlines") {
+    targetCtx.globalAlpha = 0.3;
+    targetCtx.fillStyle = getAccentColor();
+    const lineGap = Math.max(5, height * 0.012);
+    for (let y = 0; y < height; y += lineGap) {
+      targetCtx.fillRect(0, y, width, 1);
+    }
+    const sweepX = ((performance.now() / 18) % (width * 1.4)) - width * 0.2;
+    const gradient = targetCtx.createLinearGradient(sweepX - width * 0.18, 0, sweepX + width * 0.18, 0);
+    gradient.addColorStop(0, "transparent");
+    gradient.addColorStop(0.5, getAccentTwoColor());
+    gradient.addColorStop(1, "transparent");
+    targetCtx.fillStyle = gradient;
+    targetCtx.fillRect(0, 0, width, height);
+  } else if (effect === "hypno") {
+    targetCtx.globalAlpha = 0.36;
+    targetCtx.strokeStyle = getAccentTwoColor();
+    targetCtx.lineWidth = Math.max(2, width * 0.0025);
+    const cx = width / 2;
+    const cy = height / 2;
+    const maxR = Math.hypot(width, height);
+    const offset = (performance.now() / 28) % 28;
+    for (let r = 18 + offset; r < maxR; r += 38) {
+      targetCtx.beginPath();
+      targetCtx.arc(cx, cy, r, 0, Math.PI * 2);
+      targetCtx.stroke();
+    }
+    targetCtx.strokeStyle = getAccentColor();
+    for (let i = 0; i < 18; i++) {
+      const angle = (i / 18) * Math.PI * 2 + performance.now() / 2500;
+      targetCtx.beginPath();
+      targetCtx.moveTo(cx, cy);
+      targetCtx.lineTo(cx + Math.cos(angle) * maxR, cy + Math.sin(angle) * maxR);
+      targetCtx.stroke();
+    }
+  }
+
+  targetCtx.restore();
+}
+
+function drawCameraFrame(targetCtx, width, height) {
+  const effect = settings.backgroundFx;
+
+  if (effect === "none") {
+    drawMirroredVideo(targetCtx, width, height);
+    return;
+  }
+
+  ensureCameraFxCanvas(width, height);
+  const fxCtx = cameraFx.frameCtx;
+  fxCtx.clearRect(0, 0, width, height);
+
+  fxCtx.save();
+  fxCtx.filter = effect === "aurora" ? "blur(18px) saturate(130%) brightness(108%)" : "blur(8px) saturate(145%) contrast(112%)";
+  drawMirroredVideo(fxCtx, width, height);
+  fxCtx.restore();
+
+  if (effect === "aurora") {
+    const glow = fxCtx.createRadialGradient(width * 0.5, height * 0.42, 0, width * 0.5, height * 0.42, width * 0.56);
+    glow.addColorStop(0, "rgba(255,255,255,0.08)");
+    glow.addColorStop(0.48, `${getAccentColor()}20`);
+    glow.addColorStop(1, "rgba(0,0,0,0.38)");
+    fxCtx.fillStyle = glow;
+    fxCtx.fillRect(0, 0, width, height);
+  } else {
+    drawCameraPatternOverlay(fxCtx, width, height, effect);
+  }
+
+  drawSharpPortraitWindow(fxCtx, width, height);
+
+  targetCtx.drawImage(cameraFx.frameCanvas, 0, 0, width, height);
 }
 
 function applyBWInsideBox(box) {
@@ -1379,6 +1513,12 @@ if (themeSelect) {
   });
 }
 
+if (backgroundFxSelect) {
+  backgroundFxSelect.addEventListener("change", () => {
+    applyBackgroundFx(backgroundFxSelect.value);
+  });
+}
+
 if (bgColorInput) {
   bgColorInput.addEventListener("input", () => {
     settings.bgColor = bgColorInput.value;
@@ -1402,6 +1542,7 @@ if (stripTitleInput) {
 }
 
 applyTheme(settings.theme);
+applyBackgroundFx(settings.backgroundFx);
 renderImageGallery();
 
 async function boot() {
