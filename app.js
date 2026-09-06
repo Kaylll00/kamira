@@ -1,6 +1,7 @@
 import {
   FilesetResolver,
   HandLandmarker,
+  ImageSegmenter,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
 const LM = {
@@ -95,6 +96,24 @@ const cameraFx = {
   frameCtx: null,
 };
 cameraFx.frameCtx = cameraFx.frameCanvas.getContext("2d", { willReadFrequently: true });
+
+let imageSegmenter = null;
+
+const segmentationState = {
+  maskCanvas: document.createElement("canvas"),
+  maskCtx: null,
+  rawCanvas: document.createElement("canvas"),
+  rawCtx: null,
+  personCanvas: document.createElement("canvas"),
+  personCtx: null,
+  rawImageData: null,
+  hasSegmentation: false,
+  lastUpdateMs: 0,
+};
+
+segmentationState.maskCtx = segmentationState.maskCanvas.getContext("2d", { willReadFrequently: true });
+segmentationState.rawCtx = segmentationState.rawCanvas.getContext("2d", { willReadFrequently: true });
+segmentationState.personCtx = segmentationState.personCanvas.getContext("2d", { willReadFrequently: true });
 
 const puzzle = {
   boardBox: null,
@@ -476,7 +495,7 @@ function withTimeout(promise, ms, timeoutMessage) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-async function initHandLandmarker() {
+async function initVisionModels() {
   let vision;
   try {
     vision = await withTimeout(
@@ -490,8 +509,9 @@ async function initHandLandmarker() {
     throw err;
   }
 
+  let handLm = null;
   try {
-    const handLandmarker = await withTimeout(
+    handLm = await withTimeout(
       HandLandmarker.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath:
@@ -507,13 +527,9 @@ async function initHandLandmarker() {
       LOAD_TIMEOUT_MS,
       "Tiempo de espera agotado descargando el modelo HandLandmarker (~10MB) con GPU."
     );
-    return handLandmarker;
   } catch (gpuErr) {
-    console.warn("[PuzzleCam] GPU delegate failed, retrying with CPU...", gpuErr);
-  }
-
-  try {
-    const handLandmarker = await withTimeout(
+    console.warn("[PuzzleCam] GPU delegate failed for HandLandmarker, retrying with CPU...", gpuErr);
+    handLm = await withTimeout(
       HandLandmarker.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath:
@@ -529,10 +545,120 @@ async function initHandLandmarker() {
       LOAD_TIMEOUT_MS,
       "Timed out downloading the HandLandmarker model (~10MB), even with CPU. Check your connection or whether storage.googleapis.com is blocked."
     );
-    return handLandmarker;
-  } catch (cpuErr) {
-    throw cpuErr;
   }
+
+  let imgSeg = null;
+  try {
+    imgSeg = await withTimeout(
+      ImageSegmenter.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
+          delegate: "GPU",
+        },
+        runningMode: "VIDEO",
+        outputCategoryMask: true,
+        outputConfidenceMasks: false,
+      }),
+      LOAD_TIMEOUT_MS,
+      "Timed out downloading Selfie Segmenter (GPU)."
+    );
+  } catch (gpuSegErr) {
+    console.warn("[PuzzleCam] GPU delegate failed for ImageSegmenter, retrying with CPU...", gpuSegErr);
+    try {
+      imgSeg = await withTimeout(
+        ImageSegmenter.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
+            delegate: "CPU",
+          },
+          runningMode: "VIDEO",
+          outputCategoryMask: true,
+          outputConfidenceMasks: false,
+        }),
+        LOAD_TIMEOUT_MS,
+        "Timed out downloading Selfie Segmenter (CPU)."
+      );
+    } catch (cpuSegErr) {
+      console.warn("[PuzzleCam] ImageSegmenter failed to load. Falling back to shape mask.", cpuSegErr);
+    }
+  }
+
+  return { handLandmarker: handLm, imageSegmenter: imgSeg };
+}
+
+let isSegmenting = false;
+
+function runSegmentation(nowMs) {
+  if (!imageSegmenter || videoEl.readyState < 2 || isSegmenting) return;
+  isSegmenting = true;
+  try {
+    imageSegmenter.segmentForVideo(videoEl, nowMs, (result) => {
+      try {
+        if (result && result.categoryMask) {
+          updateSegmentationMask(result.categoryMask);
+          result.categoryMask.close();
+        }
+      } catch (e) {
+        console.warn("[PuzzleCam] Error in segmentation callback:", e);
+      } finally {
+        isSegmenting = false;
+      }
+    });
+  } catch (err) {
+    isSegmenting = false;
+    console.warn("[PuzzleCam] segmentForVideo call failed:", err);
+  }
+}
+
+function updateSegmentationMask(categoryMask) {
+  const maskW = categoryMask.width;
+  const maskH = categoryMask.height;
+  if (!maskW || !maskH) return;
+
+  const maskBytes = categoryMask.getAsUint8Array();
+  if (!maskBytes || maskBytes.length !== maskW * maskH) return;
+
+  if (segmentationState.rawCanvas.width !== maskW || segmentationState.rawCanvas.height !== maskH) {
+    segmentationState.rawCanvas.width = maskW;
+    segmentationState.rawCanvas.height = maskH;
+    segmentationState.rawImageData = segmentationState.rawCtx.createImageData(maskW, maskH);
+  }
+
+  const imgData = segmentationState.rawImageData;
+  const data = imgData.data;
+
+  for (let i = 0; i < maskBytes.length; i++) {
+    const isPerson = maskBytes[i] === 0;
+    const idx = i * 4;
+    data[idx] = 255;
+    data[idx + 1] = 255;
+    data[idx + 2] = 255;
+    data[idx + 3] = isPerson ? 255 : 0;
+  }
+
+  segmentationState.rawCtx.putImageData(imgData, 0, 0);
+
+  const targetW = canvas.width || videoEl.videoWidth || 640;
+  const targetH = canvas.height || videoEl.videoHeight || 480;
+
+  if (segmentationState.maskCanvas.width !== targetW || segmentationState.maskCanvas.height !== targetH) {
+    segmentationState.maskCanvas.width = targetW;
+    segmentationState.maskCanvas.height = targetH;
+  }
+
+  const mCtx = segmentationState.maskCtx;
+  mCtx.clearRect(0, 0, targetW, targetH);
+  mCtx.save();
+  mCtx.filter = "blur(4px)";
+  mCtx.translate(targetW, 0);
+  mCtx.scale(-1, 1);
+  mCtx.drawImage(segmentationState.rawCanvas, 0, 0, targetW, targetH);
+  mCtx.restore();
+
+  segmentationState.hasSegmentation = true;
+  segmentationState.lastUpdateMs = performance.now();
 }
 
 function dist2D(a, b) {
@@ -1119,7 +1245,26 @@ function drawCameraFrame(targetCtx, width, height) {
     drawCameraPatternOverlay(fxCtx, width, height, effect);
   }
 
-  drawSharpPortraitWindow(fxCtx, width, height);
+  const isSegFresh = segmentationState.hasSegmentation && (performance.now() - segmentationState.lastUpdateMs < 1200);
+
+  if (isSegFresh) {
+    if (segmentationState.personCanvas.width !== width || segmentationState.personCanvas.height !== height) {
+      segmentationState.personCanvas.width = width;
+      segmentationState.personCanvas.height = height;
+    }
+    const pCtx = segmentationState.personCtx;
+    pCtx.clearRect(0, 0, width, height);
+
+    drawMirroredVideo(pCtx, width, height);
+
+    pCtx.globalCompositeOperation = "destination-in";
+    pCtx.drawImage(segmentationState.maskCanvas, 0, 0, width, height);
+    pCtx.globalCompositeOperation = "source-over";
+
+    fxCtx.drawImage(segmentationState.personCanvas, 0, 0, width, height);
+  } else {
+    drawSharpPortraitWindow(fxCtx, width, height);
+  }
 
   targetCtx.drawImage(cameraFx.frameCanvas, 0, 0, width, height);
 }
@@ -1479,8 +1624,11 @@ function processResults(result) {
 
 function renderLoop() {
   if (videoEl.readyState >= 2 && handLandmarker) {
-    drawVideoFrame();
     const nowMs = performance.now();
+    if (imageSegmenter && settings.backgroundFx !== "none") {
+      runSegmentation(nowMs);
+    }
+    drawVideoFrame();
     const result = handLandmarker.detectForVideo(videoEl, nowMs);
     processResults(result);
   }
@@ -1501,7 +1649,7 @@ function showLoaderError(message) {
 function resetLoaderUI() {
   loadingOverlay.classList.remove("hidden");
   loaderText.style.color = "";
-  loaderText.textContent = "loading HandLandmarker model...";
+  loaderText.textContent = "loading AI vision models...";
   loaderRetry.classList.add("hidden");
   errorBanner.style.display = "none";
 }
@@ -1561,7 +1709,9 @@ async function boot() {
       await initWebcam();
     }
 
-    handLandmarker = await initHandLandmarker();
+    const models = await initVisionModels();
+    handLandmarker = models.handLandmarker;
+    imageSegmenter = models.imageSegmenter;
 
     settled = true;
     clearTimeout(watchdog);
