@@ -94,8 +94,11 @@ const puzzleImageChoices = [
 const cameraFx = {
   frameCanvas: document.createElement("canvas"),
   frameCtx: null,
+  blurCanvas: document.createElement("canvas"),
+  blurCtx: null,
 };
 cameraFx.frameCtx = cameraFx.frameCanvas.getContext("2d", { willReadFrequently: true });
+cameraFx.blurCtx = cameraFx.blurCanvas.getContext("2d");
 
 let imageSegmenter = null;
 
@@ -107,6 +110,7 @@ const segmentationState = {
   personCanvas: document.createElement("canvas"),
   personCtx: null,
   rawImageData: null,
+  rawUint32: null,
   hasSegmentation: false,
   lastUpdateMs: 0,
 };
@@ -114,6 +118,35 @@ const segmentationState = {
 segmentationState.maskCtx = segmentationState.maskCanvas.getContext("2d", { willReadFrequently: true });
 segmentationState.rawCtx = segmentationState.rawCanvas.getContext("2d", { willReadFrequently: true });
 segmentationState.personCtx = segmentationState.personCanvas.getContext("2d", { willReadFrequently: true });
+
+const smoothedBox = {
+  x: 0,
+  y: 0,
+  width: 0,
+  height: 0,
+  active: false,
+};
+
+function smoothBox(rawBox, alpha = 0.38) {
+  if (!smoothedBox.active) {
+    smoothedBox.x = rawBox.x;
+    smoothedBox.y = rawBox.y;
+    smoothedBox.width = rawBox.width;
+    smoothedBox.height = rawBox.height;
+    smoothedBox.active = true;
+  } else {
+    smoothedBox.x += (rawBox.x - smoothedBox.x) * alpha;
+    smoothedBox.y += (rawBox.y - smoothedBox.y) * alpha;
+    smoothedBox.width += (rawBox.width - smoothedBox.width) * alpha;
+    smoothedBox.height += (rawBox.height - smoothedBox.height) * alpha;
+  }
+  return {
+    x: smoothedBox.x,
+    y: smoothedBox.y,
+    width: smoothedBox.width,
+    height: smoothedBox.height,
+  };
+}
 
 const puzzle = {
   boardBox: null,
@@ -434,12 +467,16 @@ function resetPuzzleOnly() {
   countdown.active = false;
   drag.activeHand = null;
   drag.piece = null;
+  pointerDrag.active = false;
+  pointerDrag.piece = null;
+  pointerDrag.pointerId = null;
   shatter.active = false;
   shatter.fragments = [];
   shatter.pendingCanvas = null;
   fistHoldCounter = 0;
   lastSeenFrame.box = null;
   lastSeenFrame.at = 0;
+  smoothedBox.active = false;
   updateProgressBadge();
 }
 
@@ -589,9 +626,13 @@ async function initVisionModels() {
 }
 
 let isSegmenting = false;
+let lastSegmentationTime = 0;
+const SEGMENTATION_INTERVAL_MS = 45; // ~22 FPS max for segmenter to maintain 60fps hand tracking
 
 function runSegmentation(nowMs) {
   if (!imageSegmenter || videoEl.readyState < 2 || isSegmenting) return;
+  if (nowMs - lastSegmentationTime < SEGMENTATION_INTERVAL_MS) return;
+  lastSegmentationTime = nowMs;
   isSegmenting = true;
   try {
     imageSegmenter.segmentForVideo(videoEl, nowMs, (result) => {
@@ -624,21 +665,15 @@ function updateSegmentationMask(categoryMask) {
     segmentationState.rawCanvas.width = maskW;
     segmentationState.rawCanvas.height = maskH;
     segmentationState.rawImageData = segmentationState.rawCtx.createImageData(maskW, maskH);
+    segmentationState.rawUint32 = new Uint32Array(segmentationState.rawImageData.data.buffer);
   }
 
-  const imgData = segmentationState.rawImageData;
-  const data = imgData.data;
-
+  const data32 = segmentationState.rawUint32;
   for (let i = 0; i < maskBytes.length; i++) {
-    const isPerson = maskBytes[i] === 0;
-    const idx = i * 4;
-    data[idx] = 255;
-    data[idx + 1] = 255;
-    data[idx + 2] = 255;
-    data[idx + 3] = isPerson ? 255 : 0;
+    data32[i] = maskBytes[i] === 0 ? 0xFFFFFFFF : 0x00FFFFFF;
   }
 
-  segmentationState.rawCtx.putImageData(imgData, 0, 0);
+  segmentationState.rawCtx.putImageData(segmentationState.rawImageData, 0, 0);
 
   const targetW = canvas.width || videoEl.videoWidth || 640;
   const targetH = canvas.height || videoEl.videoHeight || 480;
@@ -708,7 +743,7 @@ function computeHandFrame(indexTipA, indexTipB) {
   const width = Math.min(canvas.width, maxX) - x;
   const height = Math.min(canvas.height, maxY) - y;
 
-  return { x, y, width, height };
+  return smoothBox({ x, y, width, height });
 }
 
 const freezeGate = { holding: false, since: 0 };
@@ -876,6 +911,14 @@ const drag = {
   piece: null,
   offsetX: 0,
   offsetY: 0,
+};
+
+const pointerDrag = {
+  active: false,
+  piece: null,
+  offsetX: 0,
+  offsetY: 0,
+  pointerId: null,
 };
 
 function isNearOwnCell(piece, box, tileW, tileH) {
@@ -1128,6 +1171,12 @@ function ensureCameraFxCanvas(width, height) {
     cameraFx.frameCanvas.width = width;
     cameraFx.frameCanvas.height = height;
   }
+  const downW = Math.max(160, Math.round(width / 3.5));
+  const downH = Math.max(90, Math.round(height / 3.5));
+  if (cameraFx.blurCanvas.width !== downW || cameraFx.blurCanvas.height !== downH) {
+    cameraFx.blurCanvas.width = downW;
+    cameraFx.blurCanvas.height = downH;
+  }
 }
 
 function drawMirroredVideo(targetCtx, width, height) {
@@ -1227,14 +1276,22 @@ function drawCameraFrame(targetCtx, width, height) {
 
   ensureCameraFxCanvas(width, height);
   const fxCtx = cameraFx.frameCtx;
+  const blurCtx = cameraFx.blurCtx;
+  const downW = cameraFx.blurCanvas.width;
+  const downH = cameraFx.blurCanvas.height;
+
   fxCtx.clearRect(0, 0, width, height);
 
-  fxCtx.save();
-  fxCtx.filter = effect === "aurora" ? "blur(18px) saturate(130%) brightness(108%)" : "blur(8px) saturate(145%) contrast(112%)";
-  drawMirroredVideo(fxCtx, width, height);
-  fxCtx.restore();
-
   if (effect === "aurora") {
+    blurCtx.save();
+    blurCtx.filter = "blur(4px) saturate(130%) brightness(108%)";
+    drawMirroredVideo(blurCtx, downW, downH);
+    blurCtx.restore();
+
+    fxCtx.imageSmoothingEnabled = true;
+    fxCtx.imageSmoothingQuality = "medium";
+    fxCtx.drawImage(cameraFx.blurCanvas, 0, 0, width, height);
+
     const glow = fxCtx.createRadialGradient(width * 0.5, height * 0.42, 0, width * 0.5, height * 0.42, width * 0.56);
     glow.addColorStop(0, "rgba(255,255,255,0.08)");
     glow.addColorStop(0.48, `${getAccentColor()}20`);
@@ -1242,6 +1299,10 @@ function drawCameraFrame(targetCtx, width, height) {
     fxCtx.fillStyle = glow;
     fxCtx.fillRect(0, 0, width, height);
   } else {
+    fxCtx.save();
+    fxCtx.filter = "blur(3px) saturate(140%) contrast(110%)";
+    drawMirroredVideo(fxCtx, width, height);
+    fxCtx.restore();
     drawCameraPatternOverlay(fxCtx, width, height, effect);
   }
 
@@ -1276,9 +1337,13 @@ function applyBWInsideBox(box) {
   const h = Math.min(canvas.height - y, Math.round(box.height));
   if (w <= 0 || h <= 0) return;
 
-  const region = ctx.getImageData(x, y, w, h);
-  applyPhotoboothEffect(region);
-  ctx.putImageData(region, x, y);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.filter = "grayscale(100%) contrast(130%) brightness(105%)";
+  drawMirroredVideo(ctx, canvas.width, canvas.height);
+  ctx.restore();
 }
 
 function drawLiveFrameOverlay(box) {
@@ -1405,11 +1470,15 @@ function startShatter(sourceCanvas, box) {
   shatter.fragments = fragments;
   shatter.active = true;
   shatter.startedAt = performance.now();
+  lastShatterTime = shatter.startedAt;
   appState = "shattering";
 }
 
+let lastShatterTime = 0;
+
 function updateAndDrawShatter() {
-  const elapsedMs = performance.now() - shatter.startedAt;
+  const now = performance.now();
+  const elapsedMs = now - shatter.startedAt;
   const t = Math.min(1, elapsedMs / SHATTER_DURATION_MS);
 
   if (t >= 1) {
@@ -1417,7 +1486,8 @@ function updateAndDrawShatter() {
     return;
   }
 
-  const dt = 1 / 60;
+  const dt = lastShatterTime > 0 ? Math.min(0.04, Math.max(0.001, (now - lastShatterTime) / 1000)) : 1 / 60;
+  lastShatterTime = now;
   const fadeStart = 0.45;
 
   ctx.save();
@@ -1693,6 +1763,7 @@ applyTheme(settings.theme);
 applyBackgroundFx(settings.backgroundFx);
 renderImageGallery();
 
+
 async function boot() {
   resetLoaderUI();
 
@@ -1748,5 +1819,72 @@ if (resetAllBtn) {
     if (confirmed) resetEverything();
   });
 }
+
+function getCanvasPointerPos(evt) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (evt.clientX - rect.left) * scaleX,
+    y: (evt.clientY - rect.top) * scaleY,
+  };
+}
+
+canvas.addEventListener("pointerdown", (evt) => {
+  if (appState !== "puzzle" || !puzzle.pieces.length) return;
+  const pos = getCanvasPointerPos(evt);
+  const piece = findNearestPiece(pos.x, pos.y);
+  if (piece) {
+    try { canvas.setPointerCapture(evt.pointerId); } catch (e) {}
+    pointerDrag.active = true;
+    pointerDrag.piece = piece;
+    pointerDrag.pointerId = evt.pointerId;
+    pointerDrag.offsetX = pos.x - piece.x;
+    pointerDrag.offsetY = pos.y - piece.y;
+    piece.dragging = true;
+    piece.placed = false;
+  }
+});
+
+canvas.addEventListener("pointermove", (evt) => {
+  if (!pointerDrag.active || !pointerDrag.piece || pointerDrag.pointerId !== evt.pointerId) return;
+  const pos = getCanvasPointerPos(evt);
+  pointerDrag.piece.x = pos.x - pointerDrag.offsetX;
+  pointerDrag.piece.y = pos.y - pointerDrag.offsetY;
+});
+
+function finishPointerDrag(evt) {
+  if (!pointerDrag.active || (pointerDrag.pointerId !== null && pointerDrag.pointerId !== evt.pointerId)) return;
+  const piece = pointerDrag.piece;
+  if (piece) {
+    piece.dragging = false;
+    if (isNearOwnCell(piece, puzzle.boardBox, puzzle.tileW, puzzle.tileH)) {
+      snapPieceToCell(piece, puzzle.boardBox, puzzle.tileW, puzzle.tileH);
+    } else {
+      clampPieceToBoard(piece);
+      const box = puzzle.boardBox;
+      const cx = piece.x + piece.w / 2;
+      const cy = piece.y + piece.h / 2;
+      const dropCol = Math.min(
+        GRID - 1,
+        Math.max(0, Math.floor((cx - box.x) / puzzle.tileW))
+      );
+      const dropRow = Math.min(
+        GRID - 1,
+        Math.max(0, Math.floor((cy - box.y) / puzzle.tileH))
+      );
+      displaceCellOccupant(piece, dropRow, dropCol, box, puzzle.tileW, puzzle.tileH);
+    }
+    puzzle.solved = reconcilePlacedState(puzzle.boardBox, puzzle.tileW, puzzle.tileH);
+    updateProgressBadge();
+  }
+  try { if (evt.pointerId) canvas.releasePointerCapture(evt.pointerId); } catch (e) {}
+  pointerDrag.active = false;
+  pointerDrag.piece = null;
+  pointerDrag.pointerId = null;
+}
+
+canvas.addEventListener("pointerup", finishPointerDrag);
+canvas.addEventListener("pointercancel", finishPointerDrag);
 
 boot();

@@ -76,6 +76,8 @@ body::after{
   z-index:-1;
   pointer-events:none;
   opacity:0;
+  transform:translateZ(0);
+  will-change:transform;
 }
 
 body::before{
@@ -83,8 +85,8 @@ body::before{
     radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 22%),
     radial-gradient(circle at 78% 18%, color-mix(in srgb, var(--accent-2) 38%, transparent), transparent 20%),
     radial-gradient(circle at 44% 78%, color-mix(in srgb, var(--violet) 34%, transparent), transparent 26%);
-  filter:blur(30px) saturate(150%);
-  transform:scale(1.08);
+  filter:blur(24px) saturate(140%);
+  transform:scale(1.08) translateZ(0);
   animation:backdropDrift 12s ease-in-out infinite alternate;
 }
 
@@ -181,6 +183,7 @@ button,input,select{ font:inherit; }
   border-radius:8px;
   background:#000;
   box-shadow:var(--shadow);
+  contain:layout paint;
 }
 
 #stage::before{
@@ -200,7 +203,10 @@ canvas#sceneCanvas{
   position:absolute;
   top:50%;
   left:50%;
-  transform:translate(-50%,-50%);
+  transform:translate(-50%,-50%) translateZ(0);
+  will-change:transform;
+  touch-action:none;
+  user-select:none;
   display:block;
 }
 
@@ -246,8 +252,8 @@ canvas#sceneCanvas{
 .print{
   border:1px solid var(--line);
   background:var(--panel);
-  backdrop-filter:blur(22px) saturate(150%);
-  -webkit-backdrop-filter:blur(22px) saturate(150%);
+  backdrop-filter:blur(16px) saturate(140%);
+  -webkit-backdrop-filter:blur(16px) saturate(140%);
   box-shadow:0 16px 50px rgba(0,0,0,0.25);
 }
 
