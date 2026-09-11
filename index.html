@@ -66,6 +66,35 @@
 
       <div class="control-row">
         <div class="control-block">
+          <label class="control-label" for="layoutSelect">Layout</label>
+          <select id="layoutSelect" class="control-input">
+            <option value="strip">Classic Strip</option>
+            <option value="polaroid">Polaroid Frame</option>
+            <option value="magazine">Magazine Cover</option>
+            <option value="grid">2x2 Grid Sheet</option>
+          </select>
+        </div>
+        <div class="control-block">
+          <label class="control-label" for="photoFilterSelect">Photo Filter</label>
+          <select id="photoFilterSelect" class="control-input">
+            <option value="photobooth">B&W Photobooth</option>
+            <option value="vintage">35mm Film</option>
+            <option value="cyber">Cyber Neon</option>
+            <option value="thermal">Thermal Heat</option>
+            <option value="natural">Natural Color</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="control-block">
+        <label class="control-label checkbox-label" for="liveMotionToggle">
+          <input type="checkbox" id="liveMotionToggle" checked />
+          <span>Live Boomerang Motion</span>
+        </label>
+      </div>
+
+      <div class="control-row">
+        <div class="control-block">
           <label class="control-label" for="bgColorInput">Background</label>
           <input id="bgColorInput" class="color-input" type="color" value="#070816" />
         </div>
@@ -97,10 +126,14 @@
     </div>
 
     <div class="gallery-actions">
-      <button type="button" id="downloadStripBtn" class="gallery-action-btn" disabled>Download strip</button>
+      <button type="button" id="downloadStripBtn" class="gallery-action-btn" disabled>Download PNG</button>
+      <button type="button" id="downloadGifBtn" class="gallery-action-btn gallery-action-btn--glow" disabled>Download Animated GIF ✨</button>
+      <button type="button" id="copyClipboardBtn" class="gallery-action-btn" disabled>Copy to Clipboard 📋</button>
       <button type="button" id="resetAllBtn" class="gallery-action-btn gallery-action-btn--danger">Reset all</button>
     </div>
   </aside>
+
+  <div id="toastNotification" class="toast-notification"></div>
 
 </div>
 

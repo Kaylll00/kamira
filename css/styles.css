@@ -398,20 +398,47 @@ canvas#sceneCanvas{
   flex:0 0 var(--gallery-width);
   width:var(--gallery-width);
   height:calc(100vh - 36px);
+  max-height:calc(100vh - 36px);
   display:flex;
   flex-direction:column;
-  overflow:hidden;
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior-y:contain;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;
+  scrollbar-color:color-mix(in srgb, var(--accent) 45%, transparent) rgba(0, 0, 0, 0.25);
   border-radius:8px;
   color:var(--paper);
+  scroll-behavior:smooth;
+}
+#gallery::-webkit-scrollbar{ width:6px; }
+#gallery::-webkit-scrollbar-thumb{
+  background:color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius:999px;
+  box-shadow:0 0 8px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+#gallery::-webkit-scrollbar-thumb:hover{
+  background:var(--accent);
+}
+#gallery::-webkit-scrollbar-track{
+  background:rgba(0,0,0,0.25);
+  border-radius:999px;
 }
 
 .gallery-head{
   flex:0 0 auto;
+  position:sticky;
+  top:0;
+  z-index:10;
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:12px;
-  padding:18px 18px 12px;
+  padding:16px 18px 12px;
+  background:var(--panel-strong);
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--line);
 }
 .gallery-title{
   color:var(--paper);
@@ -516,21 +543,17 @@ select.control-input option{ color:#0b1020; }
 .strip-complete-msg.visible{ display:block; }
 
 .gallery-strip{
-  flex:1 1 auto;
+  flex:0 0 auto;
   display:flex;
   flex-direction:column;
   gap:12px;
-  min-height:0;
-  overflow-y:auto;
-  overflow-x:hidden;
+  min-height:60px;
+  overflow:visible;
   padding:0 14px 14px;
 }
-.gallery-strip::-webkit-scrollbar{ width:7px; }
-.gallery-strip::-webkit-scrollbar-thumb{ background:color-mix(in srgb, var(--accent) 35%, transparent); border-radius:999px; }
-.gallery-strip::-webkit-scrollbar-track{ background:transparent; }
 
 .gallery-empty{
-  padding:28px 8px;
+  padding:24px 8px;
   color:var(--muted);
   text-align:center;
   font-family:var(--mono);
@@ -564,20 +587,72 @@ select.control-input option{ color:#0b1020; }
   text-transform:uppercase;
 }
 
+.checkbox-label{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  cursor:pointer;
+  user-select:none;
+}
+.checkbox-label input[type="checkbox"]{
+  width:16px;
+  height:16px;
+  accent-color:var(--accent);
+  cursor:pointer;
+}
+
 .gallery-actions{
   flex:0 0 auto;
   display:flex;
   flex-direction:column;
   gap:9px;
   padding:14px;
+  margin-top:auto;
+  margin-bottom:12px;
+  background:var(--panel-strong);
   border-top:1px solid var(--line);
 }
 .gallery-action-btn{ width:100%; }
 .gallery-action-btn:disabled{ opacity:0.35; cursor:not-allowed; }
+.gallery-action-btn--glow{
+  border-color:color-mix(in srgb, var(--accent-2) 80%, white 20%);
+  background:linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 35%, transparent), color-mix(in srgb, var(--accent) 30%, transparent));
+  box-shadow:0 0 16px color-mix(in srgb, var(--accent-2) 28%, transparent);
+}
+.gallery-action-btn--glow:hover:not(:disabled){
+  box-shadow:0 0 28px color-mix(in srgb, var(--accent-2) 60%, transparent);
+}
 .gallery-action-btn--danger{
   border-color:color-mix(in srgb, var(--danger) 72%, white 8%);
   background:rgba(255,92,122,0.12);
   color:#ffd8df;
+}
+
+.toast-notification{
+  position:fixed;
+  bottom:32px;
+  left:50%;
+  transform:translateX(-50%) translateY(20px);
+  z-index:999;
+  padding:12px 24px;
+  border-radius:999px;
+  border:1px solid var(--accent);
+  background:var(--panel-strong);
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  color:var(--paper);
+  font-family:var(--mono);
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:0.08em;
+  box-shadow:0 12px 40px rgba(0,0,0,0.6), 0 0 24px color-mix(in srgb, var(--accent) 40%, transparent);
+  opacity:0;
+  pointer-events:none;
+  transition:transform 0.3s cubic-bezier(0.2,0.8,0.3,1.2), opacity 0.3s ease;
+}
+.toast-notification.visible{
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
 }
 
 @media (max-width:900px){

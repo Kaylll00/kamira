@@ -56,14 +56,20 @@ const galleryStrip = document.getElementById("galleryStrip");
 const galleryEmpty = document.getElementById("galleryEmpty");
 const galleryCount = document.getElementById("galleryCount");
 const downloadStripBtn = document.getElementById("downloadStripBtn");
+const downloadGifBtn = document.getElementById("downloadGifBtn");
+const copyClipboardBtn = document.getElementById("copyClipboardBtn");
 const resetAllBtn = document.getElementById("resetAllBtn");
 const stripCompleteMsg = document.getElementById("stripCompleteMsg");
 const themeSelect = document.getElementById("themeSelect");
 const backgroundFxSelect = document.getElementById("backgroundFxSelect");
+const layoutSelect = document.getElementById("layoutSelect");
+const photoFilterSelect = document.getElementById("photoFilterSelect");
+const liveMotionToggle = document.getElementById("liveMotionToggle");
 const bgColorInput = document.getElementById("bgColorInput");
 const accentColorInput = document.getElementById("accentColorInput");
 const stripTitleInput = document.getElementById("stripTitleInput");
 const imageGallery = document.getElementById("imageGallery");
+const toastNotification = document.getElementById("toastNotification");
 
 let appState = "tracking";
 
@@ -72,6 +78,9 @@ const settings = {
   bgColor: "#070816",
   accentColor: "#00e5ff",
   backgroundFx: "aurora",
+  layout: "strip",
+  photoFilter: "photobooth",
+  liveMotion: true,
   stripTitle: "PuzzleCam Session",
   puzzleImage: "camera",
 };
@@ -338,10 +347,93 @@ function renderImageGallery() {
   });
 }
 
-function addToGallery(snapshotCanvas) {
+function showToast(message, duration = 2800) {
+  if (!toastNotification) return;
+  toastNotification.textContent = message;
+  toastNotification.classList.add("visible");
+  clearTimeout(toastNotification._timer);
+  toastNotification._timer = setTimeout(() => {
+    toastNotification.classList.remove("visible");
+  }, duration);
+}
+
+function applyPhotoFilterToCanvas(targetCanvas, filterType) {
+  const targetCtx = targetCanvas.getContext("2d");
+  const imgData = targetCtx.getImageData(0, 0, targetCanvas.width, targetCanvas.height);
+  const d = imgData.data;
+  const w = targetCanvas.width;
+  const h = targetCanvas.height;
+
+  if (filterType === "vintage") {
+    for (let i = 0; i < d.length; i += 4) {
+      let r = d[i] * 1.15 + 12;
+      let g = d[i + 1] * 1.02 + 4;
+      let b = d[i + 2] * 0.86 - 6;
+      const noise = (Math.random() - 0.5) * 16;
+      d[i] = Math.max(0, Math.min(255, r + noise));
+      d[i + 1] = Math.max(0, Math.min(255, g + noise));
+      d[i + 2] = Math.max(0, Math.min(255, b + noise));
+    }
+  } else if (filterType === "cyber") {
+    const copy = new Uint8ClampedArray(d);
+    const shift = Math.max(3, Math.round(w * 0.008));
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        const leftIdx = (y * w + Math.max(0, x - shift)) * 4;
+        const rightIdx = (y * w + Math.min(w - 1, x + shift)) * 4;
+        d[idx] = Math.min(255, copy[leftIdx] * 1.3);
+        d[idx + 1] = copy[idx + 1];
+        d[idx + 2] = Math.min(255, copy[rightIdx + 2] * 1.4);
+      }
+    }
+  } else if (filterType === "thermal") {
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+      let r = 0, g = 0, b = 0;
+      if (lum < 0.25) {
+        const t = lum / 0.25;
+        r = Math.round(t * 110);
+        g = 0;
+        b = Math.round(140 + t * 115);
+      } else if (lum < 0.55) {
+        const t = (lum - 0.25) / 0.3;
+        r = Math.round(110 + t * 145);
+        g = Math.round(t * 80);
+        b = Math.round(255 * (1 - t));
+      } else if (lum < 0.85) {
+        const t = (lum - 0.55) / 0.3;
+        r = 255;
+        g = Math.round(80 + t * 175);
+        b = 0;
+      } else {
+        const t = (lum - 0.85) / 0.15;
+        r = 255;
+        g = 255;
+        b = Math.round(t * 255);
+      }
+      d[i] = r;
+      d[i + 1] = g;
+      d[i + 2] = b;
+    }
+  } else if (filterType === "natural") {
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = Math.max(0, Math.min(255, (d[i] - 128) * 1.1 + 128 + 4));
+      d[i + 1] = Math.max(0, Math.min(255, (d[i + 1] - 128) * 1.1 + 128 + 4));
+      d[i + 2] = Math.max(0, Math.min(255, (d[i + 2] - 128) * 1.1 + 128 + 4));
+    }
+  } else {
+    applyPhotoboothEffect(imgData);
+  }
+
+  targetCtx.putImageData(imgData, 0, 0);
+}
+
+function addToGallery(snapshotCanvas, boomerangFrames = null) {
   if (galleryEntries.length >= STRIP_MAX_PHOTOS) return;
 
-  galleryEntries.push({ canvas: snapshotCanvas, time: Date.now() });
+  const frames = boomerangFrames && boomerangFrames.length > 0 ? boomerangFrames : [snapshotCanvas];
+  galleryEntries.push({ canvas: snapshotCanvas, frames, time: Date.now() });
   renderGalleryThumb(snapshotCanvas, galleryEntries.length);
   galleryCount.textContent = `${galleryEntries.length} / ${STRIP_MAX_PHOTOS}`;
   if (galleryEmpty) galleryEmpty.style.display = "none";
@@ -365,50 +457,372 @@ function hideStripComplete() {
 }
 
 function updateStripDownloadAvailability() {
-  if (!downloadStripBtn) return;
-  downloadStripBtn.disabled = galleryEntries.length === 0;
+  const hasEntries = galleryEntries.length > 0;
+  if (downloadStripBtn) downloadStripBtn.disabled = !hasEntries;
+  if (downloadGifBtn) downloadGifBtn.disabled = !hasEntries;
+  if (copyClipboardBtn) copyClipboardBtn.disabled = !hasEntries;
 }
 
-const STRIP_FILE_BORDER = 24;
-const STRIP_FILE_GAP = 16;
-const STRIP_FILE_BG = "#ffffff";
+function drawBarcodeGraphic(targetCtx, x, y, width, height, dark = true) {
+  targetCtx.save();
+  targetCtx.fillStyle = dark ? "#111" : "#fff";
+  let cursorX = x;
+  let i = 0;
+  while (cursorX < x + width) {
+    const barW = (i % 3 === 0) ? 3 : (i % 2 === 0 ? 1 : 2);
+    if (i % 2 === 0) {
+      targetCtx.fillRect(cursorX, y, barW, height);
+    }
+    cursorX += barW + 1;
+    i++;
+  }
+  targetCtx.restore();
+}
 
-function downloadPhotoStrip() {
-  if (galleryEntries.length === 0) return;
+function renderLayoutCanvas(entries, layout = "strip", frameIndex = 0) {
+  if (!entries || entries.length === 0) return null;
 
-  const entries = galleryEntries;
-  const targetW = entries[0].canvas.width;
-  const scaledHeights = entries.map((entry) =>
-    Math.round(entry.canvas.height * (targetW / entry.canvas.width))
+  const getEntryFrame = (entry) => {
+    if (entry.frames && entry.frames.length > 0) {
+      return entry.frames[frameIndex % entry.frames.length];
+    }
+    return entry.canvas;
+  };
+
+  const activeEntries = entries.map((e) => ({
+    frameCanvas: getEntryFrame(e),
+    original: e,
+  }));
+
+  const targetW = activeEntries[0].frameCanvas.width;
+  const targetH = activeEntries[0].frameCanvas.height;
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")}`;
+  const titleText = sanitizeTitle(settings.stripTitle);
+
+  if (layout === "polaroid") {
+    const padding = 28;
+    const bottomExtra = 90;
+    const totalW = targetW + padding * 2;
+    const totalH = targetH + padding + bottomExtra;
+
+    const out = document.createElement("canvas");
+    out.width = totalW;
+    out.height = totalH;
+    const outCtx = out.getContext("2d");
+
+    outCtx.fillStyle = "#fafbfe";
+    outCtx.fillRect(0, 0, totalW, totalH);
+
+    outCtx.fillStyle = "rgba(0,0,0,0.06)";
+    outCtx.fillRect(0, 0, totalW, 6);
+
+    const latest = activeEntries[activeEntries.length - 1];
+    outCtx.drawImage(latest.frameCanvas, padding, padding, targetW, targetH);
+
+    outCtx.strokeStyle = "rgba(0,0,0,0.12)";
+    outCtx.lineWidth = 1;
+    outCtx.strokeRect(padding, padding, targetW, targetH);
+
+    outCtx.fillStyle = "#1e2230";
+    outCtx.font = "800 24px 'IBM Plex Mono', monospace";
+    outCtx.textAlign = "left";
+    outCtx.textBaseline = "middle";
+    outCtx.fillText(titleText, padding + 4, targetH + padding + 36);
+
+    outCtx.fillStyle = "#667085";
+    outCtx.font = "600 13px 'IBM Plex Mono', monospace";
+    outCtx.textAlign = "left";
+    outCtx.fillText(`${dateStr} • SHOT #${String(entries.length).padStart(2, "0")}`, padding + 4, targetH + padding + 64);
+
+    drawBarcodeGraphic(outCtx, totalW - padding - 85, targetH + padding + 28, 80, 42, true);
+
+    return out;
+  }
+
+  if (layout === "magazine") {
+    const totalW = targetW + 48;
+    const totalH = targetH + 160;
+
+    const out = document.createElement("canvas");
+    out.width = totalW;
+    out.height = totalH;
+    const outCtx = out.getContext("2d");
+
+    outCtx.fillStyle = "#090a12";
+    outCtx.fillRect(0, 0, totalW, totalH);
+
+    outCtx.fillStyle = getAccentColor();
+    outCtx.font = "900 36px 'Inter', sans-serif";
+    outCtx.textAlign = "center";
+    outCtx.textBaseline = "top";
+    outCtx.letterSpacing = "4px";
+    outCtx.fillText("PUZZLECAM", totalW / 2, 16);
+
+    outCtx.fillStyle = "#aeb7d4";
+    outCtx.font = "700 11px 'IBM Plex Mono', monospace";
+    outCtx.fillText("VOL. 2026 • GESTURE PHOTOBOOTH EDITION", totalW / 2, 58);
+
+    const hero = activeEntries[activeEntries.length - 1];
+    outCtx.drawImage(hero.frameCanvas, 24, 76, targetW, targetH);
+
+    outCtx.strokeStyle = `${getAccentColor()}88`;
+    outCtx.lineWidth = 2;
+    outCtx.strokeRect(24, 76, targetW, targetH);
+
+    outCtx.fillStyle = "#ffffff";
+    outCtx.font = "800 18px 'Inter', sans-serif";
+    outCtx.textAlign = "left";
+    outCtx.textBaseline = "top";
+    outCtx.fillText(titleText.toUpperCase(), 28, totalH - 68);
+
+    outCtx.fillStyle = getAccentTwoColor();
+    outCtx.font = "700 11px 'IBM Plex Mono', monospace";
+    outCtx.fillText(`FEATURING ${entries.length} CAPTURES • ${dateStr}`, 28, totalH - 40);
+
+    drawBarcodeGraphic(outCtx, totalW - 110, totalH - 68, 85, 48, false);
+
+    return out;
+  }
+
+  if (layout === "grid") {
+    const pad = 24;
+    const gap = 14;
+    const halfW = Math.round(targetW * 0.7);
+    const halfH = Math.round(targetH * 0.7);
+    const totalW = pad * 2 + halfW * 2 + gap;
+    const totalH = pad * 2 + halfH * 2 + gap + 60;
+
+    const out = document.createElement("canvas");
+    out.width = totalW;
+    out.height = totalH;
+    const outCtx = out.getContext("2d");
+
+    outCtx.fillStyle = "#ffffff";
+    outCtx.fillRect(0, 0, totalW, totalH);
+
+    const positions = [
+      { x: pad, y: pad },
+      { x: pad + halfW + gap, y: pad },
+      { x: pad, y: pad + halfH + gap },
+      { x: pad + halfW + gap, y: pad + halfH + gap },
+    ];
+
+    positions.forEach((pos, idx) => {
+      const entry = activeEntries[idx % activeEntries.length];
+      outCtx.drawImage(entry.frameCanvas, pos.x, pos.y, halfW, halfH);
+      outCtx.strokeStyle = "rgba(0,0,0,0.12)";
+      outCtx.lineWidth = 1;
+      outCtx.strokeRect(pos.x, pos.y, halfW, halfH);
+    });
+
+    outCtx.fillStyle = "#111422";
+    outCtx.font = "800 20px 'IBM Plex Mono', monospace";
+    outCtx.textAlign = "left";
+    outCtx.textBaseline = "top";
+    outCtx.fillText(titleText, pad, totalH - 46);
+
+    outCtx.fillStyle = "#667085";
+    outCtx.font = "600 12px 'IBM Plex Mono', monospace";
+    outCtx.fillText(dateStr, pad, totalH - 22);
+
+    drawBarcodeGraphic(outCtx, totalW - pad - 90, totalH - 50, 90, 36, true);
+
+    return out;
+  }
+
+  // Default: Classic Vertical Strip
+  const border = 24;
+  const gap = 16;
+  const scaledHeights = activeEntries.map((entry) =>
+    Math.round(entry.frameCanvas.height * (targetW / entry.frameCanvas.width))
   );
 
   const totalH =
-    STRIP_FILE_BORDER * 2 +
-    28 +
+    border * 2 +
+    38 +
     scaledHeights.reduce((sum, h) => sum + h, 0) +
-    STRIP_FILE_GAP * (entries.length - 1);
-  const totalW = targetW + STRIP_FILE_BORDER * 2;
+    gap * (activeEntries.length - 1) +
+    40;
+  const totalW = targetW + border * 2;
 
   const stripCanvas = document.createElement("canvas");
   stripCanvas.width = totalW;
   stripCanvas.height = totalH;
   const stripCtx = stripCanvas.getContext("2d");
 
-  stripCtx.fillStyle = STRIP_FILE_BG;
+  stripCtx.fillStyle = "#ffffff";
   stripCtx.fillRect(0, 0, totalW, totalH);
 
   stripCtx.fillStyle = "#10131f";
-  stripCtx.font = "700 28px Inter, sans-serif";
+  stripCtx.font = "800 22px 'Inter', sans-serif";
   stripCtx.textAlign = "center";
   stripCtx.textBaseline = "top";
-  stripCtx.fillText(sanitizeTitle(settings.stripTitle), totalW / 2, 10);
+  stripCtx.fillText(titleText, totalW / 2, 12);
 
-  let cursorY = STRIP_FILE_BORDER + 28;
-  entries.forEach((entry, i) => {
+  stripCtx.fillStyle = "#667085";
+  stripCtx.font = "600 11px 'IBM Plex Mono', monospace";
+  stripCtx.fillText(`PUZZLE.CAM • ${dateStr}`, totalW / 2, 36);
+
+  let cursorY = border + 34;
+  activeEntries.forEach((entry, i) => {
     const h = scaledHeights[i];
-    stripCtx.drawImage(entry.canvas, STRIP_FILE_BORDER, cursorY, targetW, h);
-    cursorY += h + STRIP_FILE_GAP;
+    stripCtx.drawImage(entry.frameCanvas, border, cursorY, targetW, h);
+    stripCtx.strokeStyle = "rgba(0,0,0,0.12)";
+    stripCtx.lineWidth = 1;
+    stripCtx.strokeRect(border, cursorY, targetW, h);
+    cursorY += h + gap;
   });
+
+  drawBarcodeGraphic(stripCtx, border, totalH - 32, totalW - border * 2, 22, true);
+
+  return stripCanvas;
+}
+
+// Pure Vanilla JS Animated GIF89a Encoder (Zero dependencies)
+function encodeGIF(canvases, delayMs = 90) {
+  if (!canvases || canvases.length === 0) return null;
+  const width = canvases[0].width;
+  const height = canvases[0].height;
+  const bytes = [];
+
+  function writeStr(s) {
+    for (let i = 0; i < s.length; i++) bytes.push(s.charCodeAt(i));
+  }
+  function write16(n) {
+    bytes.push(n & 0xff, (n >> 8) & 0xff);
+  }
+
+  writeStr("GIF89a");
+  write16(width);
+  write16(height);
+  bytes.push(0x70, 0, 0);
+
+  // Netscape looping extension
+  bytes.push(0x21, 0xff, 0x0b);
+  writeStr("NETSCAPE2.0");
+  bytes.push(0x03, 0x01, 0x00, 0x00, 0x00);
+
+  canvases.forEach((c) => {
+    const ctx = c.getContext("2d");
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const d = imgData.data;
+
+    const palette = [];
+    const colorMap = new Map();
+    const indexedPixels = new Uint8Array(width * height);
+
+    for (let i = 0; i < d.length; i += 4) {
+      const r = Math.min(3, Math.floor(d[i] / 64)) * 85;
+      const g = Math.min(3, Math.floor(d[i + 1] / 64)) * 85;
+      const b = Math.min(3, Math.floor(d[i + 2] / 64)) * 85;
+      const key = (r << 16) | (g << 8) | b;
+      let idx = colorMap.get(key);
+      if (idx === undefined) {
+        idx = palette.length / 3;
+        if (idx < 64) {
+          palette.push(r, g, b);
+          colorMap.set(key, idx);
+        } else {
+          idx = 0;
+        }
+      }
+      indexedPixels[i / 4] = idx;
+    }
+
+    while (palette.length < 64 * 3) {
+      palette.push(0, 0, 0);
+    }
+
+    const colorDepth = 6;
+    const delayUnits = Math.max(2, Math.round(delayMs / 10));
+    bytes.push(0x21, 0xf9, 0x04, 0x00);
+    write16(delayUnits);
+    bytes.push(0x00, 0x00);
+
+    bytes.push(0x2c);
+    write16(0);
+    write16(0);
+    write16(width);
+    write16(height);
+    bytes.push(0x80 | (colorDepth - 1));
+
+    for (let i = 0; i < palette.length; i++) {
+      bytes.push(palette[i]);
+    }
+
+    const minCodeSize = Math.max(2, colorDepth);
+    bytes.push(minCodeSize);
+
+    const clearCode = 1 << minCodeSize;
+    const eoiCode = clearCode + 1;
+
+    let codeSize = minCodeSize + 1;
+    let nextCode = eoiCode + 1;
+    let dict = new Map();
+
+    function initDict() {
+      dict.clear();
+      for (let i = 0; i < clearCode; i++) dict.set(String.fromCharCode(i), i);
+      codeSize = minCodeSize + 1;
+      nextCode = eoiCode + 1;
+    }
+    initDict();
+
+    const outBits = [];
+    function writeBits(code, len) {
+      for (let b = 0; b < len; b++) outBits.push((code >> b) & 1);
+    }
+
+    writeBits(clearCode, codeSize);
+    let curPattern = "";
+    for (let i = 0; i < indexedPixels.length; i++) {
+      const ch = String.fromCharCode(indexedPixels[i]);
+      const comb = curPattern + ch;
+      if (dict.has(comb)) {
+        curPattern = comb;
+      } else {
+        writeBits(dict.get(curPattern), codeSize);
+        if (nextCode < 4096) {
+          dict.set(comb, nextCode++);
+          if (nextCode > (1 << codeSize) && codeSize < 12) {
+            codeSize++;
+          }
+        } else {
+          writeBits(clearCode, codeSize);
+          initDict();
+        }
+        curPattern = ch;
+      }
+    }
+    if (curPattern !== "") writeBits(dict.get(curPattern), codeSize);
+    writeBits(eoiCode, codeSize);
+
+    const stream = [];
+    for (let i = 0; i < outBits.length; i += 8) {
+      let byteVal = 0;
+      for (let b = 0; b < 8 && i + b < outBits.length; b++) {
+        byteVal |= outBits[i + b] << b;
+      }
+      stream.push(byteVal);
+    }
+
+    for (let i = 0; i < stream.length; i += 254) {
+      const sub = stream.slice(i, i + 254);
+      bytes.push(sub.length);
+      for (let j = 0; j < sub.length; j++) bytes.push(sub[j]);
+    }
+    bytes.push(0x00);
+  });
+
+  bytes.push(0x3b);
+  return new Blob([new Uint8Array(bytes)], { type: "image/gif" });
+}
+
+function downloadPhotoStrip() {
+  if (galleryEntries.length === 0) return;
+  const stripCanvas = renderLayoutCanvas(galleryEntries, settings.layout);
+  if (!stripCanvas) return;
 
   stripCanvas.toBlob((blob) => {
     if (!blob) return;
@@ -416,12 +830,69 @@ function downloadPhotoStrip() {
     const link = document.createElement("a");
     link.href = url;
     const fileTitle = sanitizeTitle(settings.stripTitle).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-    link.download = `${fileTitle || "puzzlecam"}_strip_${Date.now()}.png`;
+    link.download = `${fileTitle || "puzzlecam"}_${settings.layout}_${Date.now()}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(url), 4000);
+    showToast("Downloaded photo strip! 📸");
   }, "image/png");
+}
+
+function downloadAnimatedGif() {
+  if (galleryEntries.length === 0) return;
+  showToast("Rendering animated Boomerang GIF... 🎞️", 4000);
+
+  setTimeout(() => {
+    const maxFrames = Math.max(...galleryEntries.map((e) => (e.frames ? e.frames.length : 1)));
+    const frameCanvases = [];
+    for (let f = 0; f < maxFrames; f++) {
+      const frameCanvas = renderLayoutCanvas(galleryEntries, settings.layout, f);
+      if (frameCanvas) frameCanvases.push(frameCanvas);
+    }
+
+    if (frameCanvases.length === 0) return;
+
+    const gifBlob = encodeGIF(frameCanvases, 90);
+    if (!gifBlob) {
+      showToast("Error creating GIF");
+      return;
+    }
+
+    const url = URL.createObjectURL(gifBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    const fileTitle = sanitizeTitle(settings.stripTitle).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    link.download = `${fileTitle || "puzzlecam"}_animated_${Date.now()}.gif`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    showToast("Animated GIF saved! ✨");
+  }, 40);
+}
+
+async function copyPhotoToClipboard() {
+  if (galleryEntries.length === 0) return;
+  const stripCanvas = renderLayoutCanvas(galleryEntries, settings.layout);
+  if (!stripCanvas) return;
+
+  try {
+    stripCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      if (navigator.clipboard && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({ "image/png": blob }),
+        ]);
+        showToast("Copied photo strip to clipboard! 📋");
+      } else {
+        showToast("Clipboard copy not supported in this browser");
+      }
+    }, "image/png");
+  } catch (err) {
+    console.warn("Clipboard copy failed:", err);
+    showToast("Could not copy to clipboard");
+  }
 }
 
 function resetEverything() {
@@ -436,6 +907,7 @@ function resetEverything() {
   updateStripDownloadAvailability();
   resetPuzzleOnly();
   statusText.textContent = "all reset";
+  showToast("All reset");
 }
 
 function renderGalleryThumb(snapshotCanvas, index) {
@@ -751,6 +1223,11 @@ const freezeGate = { holding: false, since: 0 };
 const FRAME_GRACE_MS = 450;
 const lastSeenFrame = { box: null, at: 0 };
 
+const countdownBurst = {
+  frames: [],
+  lastSampleTime: 0,
+};
+
 const countdown = {
   active: false,
   startedAt: 0,
@@ -761,6 +1238,8 @@ function startCountdown(frameBox) {
   appState = "countdown";
   countdown.active = true;
   countdown.startedAt = performance.now();
+  countdownBurst.frames = [];
+  countdownBurst.lastSampleTime = 0;
 }
 
 function drawCountdownOverlay(box) {
@@ -770,6 +1249,45 @@ function drawCountdownOverlay(box) {
   if (remaining <= 0) {
     finishCountdownAndCapture(box);
     return;
+  }
+
+  // Sample Boomerang video frames during the countdown
+  const now = performance.now();
+  if (now - countdownBurst.lastSampleTime > 85) {
+    countdownBurst.lastSampleTime = now;
+    const cropW = Math.max(1, Math.round(box.width));
+    const cropH = Math.max(1, Math.round(box.height));
+    const sampleCanvas = document.createElement("canvas");
+    sampleCanvas.width = cropW;
+    sampleCanvas.height = cropH;
+    const sCtx = sampleCanvas.getContext("2d");
+    if (settings.puzzleImage === "camera") {
+      sCtx.save();
+      sCtx.drawImage(
+        videoEl,
+        0, 0, videoEl.videoWidth, videoEl.videoHeight,
+        0, 0, cropW, cropH
+      );
+      sCtx.restore();
+      // Mirror horizontal for natural webcam feel
+      const mirroredSample = document.createElement("canvas");
+      mirroredSample.width = cropW;
+      mirroredSample.height = cropH;
+      const mCtx = mirroredSample.getContext("2d");
+      mCtx.translate(cropW, 0);
+      mCtx.scale(-1, 1);
+      mCtx.drawImage(sampleCanvas, 0, 0);
+      applyPhotoFilterToCanvas(mirroredSample, settings.photoFilter);
+      countdownBurst.frames.push(mirroredSample);
+    } else {
+      const selectedImage = createProceduralCanvas(cropW, cropH, settings.puzzleImage);
+      sCtx.drawImage(selectedImage, 0, 0, cropW, cropH);
+      applyPhotoFilterToCanvas(sampleCanvas, settings.photoFilter);
+      countdownBurst.frames.push(sampleCanvas);
+    }
+    if (countdownBurst.frames.length > 10) {
+      countdownBurst.frames.shift();
+    }
   }
 
   applyBWInsideBox(box);
@@ -847,11 +1365,19 @@ function finishCountdownAndCapture(box) {
     cropCtx.drawImage(selectedImage, 0, 0, cropCanvas.width, cropCanvas.height);
   }
 
-  const fullImageData = cropCtx.getImageData(0, 0, cropCanvas.width, cropCanvas.height);
-  applyPhotoboothEffect(fullImageData);
-  cropCtx.putImageData(fullImageData, 0, 0);
-
+  applyPhotoFilterToCanvas(cropCanvas, settings.photoFilter);
   puzzle.fullPhotoboothCanvas = cropCanvas;
+
+  // Build Boomerang ping-pong sequence
+  const boomerang = [];
+  if (countdownBurst.frames.length >= 2) {
+    const forward = [...countdownBurst.frames, cropCanvas];
+    const reverse = [...countdownBurst.frames].reverse();
+    boomerang.push(...forward, ...reverse);
+  } else {
+    boomerang.push(cropCanvas);
+  }
+  puzzle.boomerangFrames = boomerang;
 
   const tileW = Math.floor(cropCanvas.width / GRID);
   const tileH = Math.floor(cropCanvas.height / GRID);
@@ -869,9 +1395,19 @@ function finishCountdownAndCapture(box) {
       pieceCanvas.height = h;
       pieceCanvas.getContext("2d").drawImage(cropCanvas, sx, sy, w, h, 0, 0, w, h);
 
+      // Create slice for each frame in Boomerang motion
+      const pieceFrames = boomerang.map((bFrame) => {
+        const pCanvas = document.createElement("canvas");
+        pCanvas.width = w;
+        pCanvas.height = h;
+        pCanvas.getContext("2d").drawImage(bFrame, sx, sy, w, h, 0, 0, w, h);
+        return pCanvas;
+      });
+
       pieces.push({
         row, col,
         canvas: pieceCanvas,
+        frames: pieceFrames,
         w, h,
         x: 0, y: 0,
         placed: false,
@@ -1125,7 +1661,12 @@ function drawBoardAndPieces() {
       ctx.shadowColor = getAccentColor();
       ctx.shadowBlur = 14;
     }
-    ctx.drawImage(piece.canvas, piece.x, piece.y, piece.w, piece.h);
+    let drawSource = piece.canvas;
+    if (settings.liveMotion && piece.frames && piece.frames.length > 0) {
+      const fIdx = Math.floor((performance.now() / 100) % piece.frames.length);
+      drawSource = piece.frames[fIdx] || piece.canvas;
+    }
+    ctx.drawImage(drawSource, piece.x, piece.y, piece.w, piece.h);
     ctx.strokeStyle = piece.placed ? getOkColor() : `${getPaperColor()}99`;
     ctx.lineWidth = piece.dragging ? 3 : 1.5;
     ctx.strokeRect(piece.x, piece.y, piece.w, piece.h);
@@ -1421,7 +1962,7 @@ function drawHandSkeletonsOverBoard(handsLandmarks, box) {
   }
 }
 
-function startShatter(sourceCanvas, box) {
+function startShatter(sourceCanvas, box, boomerangFrames = null) {
   const cols = SHATTER_COLS;
   const rows = SHATTER_ROWS;
   const fragW = sourceCanvas.width / cols;
@@ -1468,6 +2009,7 @@ function startShatter(sourceCanvas, box) {
   }
 
   shatter.fragments = fragments;
+  shatter.pendingFrames = boomerangFrames || [sourceCanvas];
   shatter.active = true;
   shatter.startedAt = performance.now();
   lastShatterTime = shatter.startedAt;
@@ -1515,9 +2057,11 @@ function finishShatter() {
   shatter.active = false;
   shatter.fragments = [];
   if (shatter.pendingCanvas) {
-    addToGallery(shatter.pendingCanvas);
+    addToGallery(shatter.pendingCanvas, shatter.pendingFrames);
     statusText.textContent = "saved to strip";
+    showToast("Saved to strip! 📸");
     shatter.pendingCanvas = null;
+    shatter.pendingFrames = null;
   }
   resetPuzzleOnly();
 }
@@ -1534,7 +2078,7 @@ function handleFistReset() {
 
   if (reallySolved && puzzle.fullPhotoboothCanvas) {
     shatter.pendingCanvas = puzzle.fullPhotoboothCanvas;
-    startShatter(puzzle.fullPhotoboothCanvas, puzzle.boardBox);
+    startShatter(puzzle.fullPhotoboothCanvas, puzzle.boardBox, puzzle.boomerangFrames);
   } else {
     statusText.textContent = "reset by fist";
     resetPuzzleOnly();
@@ -1806,10 +2350,37 @@ loaderRetry.addEventListener("click", () => {
   boot();
 });
 
+if (layoutSelect) {
+  layoutSelect.addEventListener("change", () => {
+    settings.layout = layoutSelect.value;
+  });
+}
+
+if (photoFilterSelect) {
+  photoFilterSelect.addEventListener("change", () => {
+    settings.photoFilter = photoFilterSelect.value;
+  });
+}
+
+if (liveMotionToggle) {
+  liveMotionToggle.addEventListener("change", () => {
+    settings.liveMotion = liveMotionToggle.checked;
+  });
+}
+
 if (downloadStripBtn) {
   downloadStripBtn.addEventListener("click", downloadPhotoStrip);
-  updateStripDownloadAvailability();
 }
+
+if (downloadGifBtn) {
+  downloadGifBtn.addEventListener("click", downloadAnimatedGif);
+}
+
+if (copyClipboardBtn) {
+  copyClipboardBtn.addEventListener("click", copyPhotoToClipboard);
+}
+
+updateStripDownloadAvailability();
 
 if (resetAllBtn) {
   resetAllBtn.addEventListener("click", () => {
