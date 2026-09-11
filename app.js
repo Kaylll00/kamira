@@ -467,7 +467,7 @@ window.addEventListener("resize", fitCanvasToWindow);
 
 async function initWebcam() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("Este navegador no soporta getUserMedia.");
+    throw new Error("This browser does not support getUserMedia.");
   }
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
@@ -525,7 +525,7 @@ async function initVisionModels() {
         minTrackingConfidence: 0.6,
       }),
       LOAD_TIMEOUT_MS,
-      "Tiempo de espera agotado descargando el modelo HandLandmarker (~10MB) con GPU."
+      "Timed out downloading the HandLandmarker model (~10MB) with GPU."
     );
   } catch (gpuErr) {
     console.warn("[PuzzleCam] GPU delegate failed for HandLandmarker, retrying with CPU...", gpuErr);
@@ -1114,7 +1114,7 @@ function updateProgressBadge() {
     return;
   }
   const placedCount = puzzle.pieces.filter((p) => p.placed).length;
-  progressText.textContent = `${placedCount} / ${puzzle.pieces.length} piezas colocadas`;
+  progressText.textContent = `${placedCount} / ${puzzle.pieces.length} pieces placed`;
   progressBadge.classList.add("visible");
   progressBadge.classList.toggle("solved", puzzle.solved);
 }
@@ -1571,7 +1571,7 @@ function processResults(result) {
         }
       } else {
         freezeGate.holding = false;
-        statusText.textContent = "manos en seguimiento";
+        statusText.textContent = "hands in tracking";
       }
     } else {
       freezeGate.holding = false;
@@ -1579,9 +1579,9 @@ function processResults(result) {
       if (lastSeenFrame.box && sinceLastSeen < FRAME_GRACE_MS) {
         applyBWInsideBox(lastSeenFrame.box);
         drawLiveFrameOverlay(lastSeenFrame.box);
-        statusText.textContent = "manos en seguimiento";
+        statusText.textContent = "hands in tracking";
       } else {
-        statusText.textContent = "manos en seguimiento";
+        statusText.textContent = "hands in tracking";
       }
     }
     return;
@@ -1726,7 +1726,7 @@ async function boot() {
     } else if (err && err.name === "NotFoundError") {
       showLoaderError("No webcam was found.");
     } else {
-      showLoaderError((err && err.message) || "Error iniciando la app.");
+      showLoaderError((err && err.message) || "Error starting the app.");
     }
   }
 }
