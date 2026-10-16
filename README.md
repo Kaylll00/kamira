@@ -65,6 +65,10 @@ Puzzle/
 | One hand pinching over a piece | Drag the puzzle piece |
 | Closed fist (hold) | Save completed puzzle / Reset board |
 
+Use the **Puzzle orientation** control to enable **Mirror mode**. The next captured puzzle
+will be flipped horizontally, including its live boomerang frames, while the camera preview
+stays unchanged.
+
 ---
 
 ## **APP LOGIC**

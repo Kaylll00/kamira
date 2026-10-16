@@ -64,6 +64,7 @@ const themeSelect = document.getElementById("themeSelect");
 const backgroundFxSelect = document.getElementById("backgroundFxSelect");
 const layoutSelect = document.getElementById("layoutSelect");
 const photoFilterSelect = document.getElementById("photoFilterSelect");
+const puzzleOrientationSelect = document.getElementById("puzzleOrientationSelect");
 const liveMotionToggle = document.getElementById("liveMotionToggle");
 const bgColorInput = document.getElementById("bgColorInput");
 const accentColorInput = document.getElementById("accentColorInput");
@@ -80,6 +81,7 @@ const settings = {
   backgroundFx: "aurora",
   layout: "strip",
   photoFilter: "photobooth",
+  puzzleOrientation: "normal",
   liveMotion: true,
   stripTitle: "PuzzleCam Session",
   puzzleImage: "camera",
@@ -427,6 +429,23 @@ function applyPhotoFilterToCanvas(targetCanvas, filterType) {
   }
 
   targetCtx.putImageData(imgData, 0, 0);
+}
+
+function mirrorCanvasHorizontally(sourceCanvas) {
+  const mirrored = document.createElement("canvas");
+  mirrored.width = sourceCanvas.width;
+  mirrored.height = sourceCanvas.height;
+  const mirroredCtx = mirrored.getContext("2d");
+  mirroredCtx.translate(mirrored.width, 0);
+  mirroredCtx.scale(-1, 1);
+  mirroredCtx.drawImage(sourceCanvas, 0, 0);
+  return mirrored;
+}
+
+function applyPuzzleOrientation(sourceCanvas) {
+  return settings.puzzleOrientation === "mirror"
+    ? mirrorCanvasHorizontally(sourceCanvas)
+    : sourceCanvas;
 }
 
 function addToGallery(snapshotCanvas, boomerangFrames = null) {
@@ -1278,12 +1297,12 @@ function drawCountdownOverlay(box) {
       mCtx.scale(-1, 1);
       mCtx.drawImage(sampleCanvas, 0, 0);
       applyPhotoFilterToCanvas(mirroredSample, settings.photoFilter);
-      countdownBurst.frames.push(mirroredSample);
+      countdownBurst.frames.push(applyPuzzleOrientation(mirroredSample));
     } else {
       const selectedImage = createProceduralCanvas(cropW, cropH, settings.puzzleImage);
       sCtx.drawImage(selectedImage, 0, 0, cropW, cropH);
       applyPhotoFilterToCanvas(sampleCanvas, settings.photoFilter);
-      countdownBurst.frames.push(sampleCanvas);
+      countdownBurst.frames.push(applyPuzzleOrientation(sampleCanvas));
     }
     if (countdownBurst.frames.length > 10) {
       countdownBurst.frames.shift();
@@ -1366,34 +1385,35 @@ function finishCountdownAndCapture(box) {
   }
 
   applyPhotoFilterToCanvas(cropCanvas, settings.photoFilter);
-  puzzle.fullPhotoboothCanvas = cropCanvas;
+  const orientedCropCanvas = applyPuzzleOrientation(cropCanvas);
+  puzzle.fullPhotoboothCanvas = orientedCropCanvas;
 
   // Build Boomerang ping-pong sequence
   const boomerang = [];
   if (countdownBurst.frames.length >= 2) {
-    const forward = [...countdownBurst.frames, cropCanvas];
+    const forward = [...countdownBurst.frames, orientedCropCanvas];
     const reverse = [...countdownBurst.frames].reverse();
     boomerang.push(...forward, ...reverse);
   } else {
-    boomerang.push(cropCanvas);
+    boomerang.push(orientedCropCanvas);
   }
   puzzle.boomerangFrames = boomerang;
 
-  const tileW = Math.floor(cropCanvas.width / GRID);
-  const tileH = Math.floor(cropCanvas.height / GRID);
+  const tileW = Math.floor(orientedCropCanvas.width / GRID);
+  const tileH = Math.floor(orientedCropCanvas.height / GRID);
   const pieces = [];
 
   for (let row = 0; row < GRID; row++) {
     for (let col = 0; col < GRID; col++) {
       const sx = col * tileW;
       const sy = row * tileH;
-      const w = col === GRID - 1 ? cropCanvas.width - sx : tileW;
-      const h = row === GRID - 1 ? cropCanvas.height - sy : tileH;
+      const w = col === GRID - 1 ? orientedCropCanvas.width - sx : tileW;
+      const h = row === GRID - 1 ? orientedCropCanvas.height - sy : tileH;
 
       const pieceCanvas = document.createElement("canvas");
       pieceCanvas.width = w;
       pieceCanvas.height = h;
-      pieceCanvas.getContext("2d").drawImage(cropCanvas, sx, sy, w, h, 0, 0, w, h);
+      pieceCanvas.getContext("2d").drawImage(orientedCropCanvas, sx, sy, w, h, 0, 0, w, h);
 
       // Create slice for each frame in Boomerang motion
       const pieceFrames = boomerang.map((bFrame) => {
@@ -2307,7 +2327,6 @@ applyTheme(settings.theme);
 applyBackgroundFx(settings.backgroundFx);
 renderImageGallery();
 
-
 async function boot() {
   resetLoaderUI();
 
@@ -2359,6 +2378,17 @@ if (layoutSelect) {
 if (photoFilterSelect) {
   photoFilterSelect.addEventListener("change", () => {
     settings.photoFilter = photoFilterSelect.value;
+  });
+}
+
+if (puzzleOrientationSelect) {
+  puzzleOrientationSelect.addEventListener("change", () => {
+    settings.puzzleOrientation = puzzleOrientationSelect.value;
+    showToast(
+      settings.puzzleOrientation === "mirror"
+        ? "Mirror mode enabled for the next puzzle 🪞"
+        : "Normal puzzle orientation enabled"
+    );
   });
 }
 
