@@ -627,31 +627,106 @@ select.control-input option{ color:#0b1020; }
   transform:translateX(-50%) translateY(0);
 }
 
+/* ---------- Tablet / phone (stacked layout) ---------- */
 @media (max-width:900px){
-  html,body{ overflow:auto; height:auto; min-height:100vh; }
+  html,body{
+    overflow-x:hidden;
+    overflow-y:auto;
+    height:auto;
+    min-height:100vh;
+    min-height:100dvh;
+  }
+
   #app{
     flex-direction:column;
     height:auto;
     min-height:100vh;
+    min-height:100dvh;
+    gap:12px;
     padding:12px;
+    padding-bottom:calc(12px + env(safe-area-inset-bottom));
   }
+
   #stage{
-    flex:0 0 62vh;
+    flex:0 0 auto;
     width:100%;
-    height:62vh;
+    height:56vh;
+    height:56dvh;
+    min-height:260px;
+    max-height:70dvh;
   }
+
   #gallery{
     width:100%;
-    flex:0 0 auto;
+    flex:1 1 auto;
     height:auto;
     max-height:none;
+    overflow:visible;
+    border-radius:10px;
   }
+
+  .gallery-head{
+    padding-top:calc(16px + env(safe-area-inset-top));
+    border-radius:10px 10px 0 0;
+  }
+
   .gallery-strip{
-    max-height:46vh;
+    max-height:none;
+    overflow:visible;
   }
+
   .hud-top{
+    flex-direction:row;
+    flex-wrap:wrap;
     align-items:flex-start;
-    flex-direction:column;
+    gap:10px;
+    padding:calc(14px + env(safe-area-inset-top)) 16px 14px;
   }
   .status-pill{ max-width:100%; }
+
+  .progress-badge{
+    top:auto;
+    bottom:14px;
+    right:14px;
+  }
+
+  /* keep the download/save controls reachable while scrolling */
+  .gallery-actions{
+    position:sticky;
+    bottom:0;
+    z-index:12;
+    margin-bottom:0;
+    padding-bottom:calc(14px + env(safe-area-inset-bottom));
+    border-radius:0 0 10px 10px;
+    backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px);
+  }
+}
+
+/* ---------- Small phones ---------- */
+@media (max-width:480px){
+  #app{ padding:10px; gap:10px; }
+  #stage{ height:50dvh; min-height:230px; }
+  .control-panel{ margin:0 10px 10px; }
+  .gallery-strip{ padding:0 10px 10px; }
+  .control-row{ grid-template-columns:1fr; }
+  .brand{ font-size:14px; }
+  .brand small{ display:none; }
+  .toast-notification{
+    left:10px;
+    right:10px;
+    bottom:calc(16px + env(safe-area-inset-bottom));
+    transform:translateY(20px);
+    text-align:center;
+  }
+  .toast-notification.visible{ transform:translateY(0); }
+}
+
+/* ---------- Touch devices: bigger hit targets ---------- */
+@media (pointer:coarse){
+  .control-input,
+  .color-input,
+  .gallery-action-btn,
+  .loader-retry{ min-height:46px; }
+  .checkbox-label input[type="checkbox"]{ width:20px; height:20px; }
 }

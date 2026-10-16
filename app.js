@@ -820,13 +820,27 @@ function fitCanvasToWindow() {
   const videoAspect = canvas.width / canvas.height;
   const containerAspect = vw / vh;
 
+  // On narrow screens, letterbox (contain) so the whole camera view — and the
+  // user's hands — stay visible instead of being cropped at the edges.
+  const contain = window.matchMedia("(max-width: 900px)").matches;
+
   let cssWidth, cssHeight;
   if (containerAspect > videoAspect) {
-    cssWidth = vw;
-    cssHeight = vw / videoAspect;
+    if (contain) {
+      cssHeight = vh;
+      cssWidth = vh * videoAspect;
+    } else {
+      cssWidth = vw;
+      cssHeight = vw / videoAspect;
+    }
   } else {
-    cssHeight = vh;
-    cssWidth = vh * videoAspect;
+    if (contain) {
+      cssWidth = vw;
+      cssHeight = vw / videoAspect;
+    } else {
+      cssHeight = vh;
+      cssWidth = vh * videoAspect;
+    }
   }
 
   canvas.style.width = `${cssWidth}px`;
@@ -834,6 +848,9 @@ function fitCanvasToWindow() {
 }
 
 window.addEventListener("resize", fitCanvasToWindow);
+window.addEventListener("orientationchange", () => {
+  setTimeout(fitCanvasToWindow, 150);
+});
 
 async function initWebcam() {
   if (!navigator.mediaDevices?.getUserMedia) {

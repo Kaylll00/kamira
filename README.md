@@ -12,10 +12,11 @@ PuzzleCam captures a photo using your hands as the "frame", turns it into a 3x3 
 
 ## **SYSTEM REQUIREMENTS**
 
-- **Browser:** Chrome or Edge (recommended), Firefox
-- **Hardware:** Webcam
+- **Browser:** Chrome or Edge (recommended), Firefox, Safari (iOS)
+- **Hardware:** Webcam (front camera on phones)
 - **Internet connection:** Required to load the MediaPipe model (~10MB, first time only)
 - **Local server:** Required to run the app (it cannot be opened directly as a file)
+- **Deploying:** Serve over **HTTPS** (or `localhost`) — browsers only allow camera access in a secure context
 
 ---
 
@@ -41,6 +42,22 @@ http://localhost:5500
 ```
 
 Allow camera access when the browser prompts you.
+
+---
+
+## **MOBILE & DEPLOYMENT**
+
+The layout is responsive: below 900px wide the camera stage stacks on top and the
+controls scroll underneath, with larger tap targets and safe-area padding for notched
+phones. Puzzle pieces can be dragged with a **finger** as well as with a pinch gesture.
+
+Because camera access requires a **secure context**, deploy the app over **HTTPS**:
+
+- **Netlify / Vercel / GitHub Pages** — drag-and-drop or connect the repo; HTTPS is automatic
+- **Any static host** — just upload `index.html`, `app.js`, and `css/`
+
+For a quick LAN test on a phone, `http://<your-computer-ip>:5500` works on most browsers
+only for `localhost`, so use a tunnel (e.g. `ngrok http 5500`) to get an HTTPS URL.
 
 ---
 
@@ -120,7 +137,7 @@ Make sure you have good lighting and that both hands are visible to the camera. 
 | Chrome / Edge | Recommended |
 | Firefox | Compatible |
 | Safari | Limited (may require additional permissions) |
-| Mobile | Limited (desktop recommended) |
+| Mobile | Supported (responsive layout, front camera + touch drag) |
 
 ---
 
