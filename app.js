@@ -68,7 +68,6 @@ const liveMotionToggle = document.getElementById("liveMotionToggle");
 const bgColorInput = document.getElementById("bgColorInput");
 const accentColorInput = document.getElementById("accentColorInput");
 const stripTitleInput = document.getElementById("stripTitleInput");
-const imageGallery = document.getElementById("imageGallery");
 const toastNotification = document.getElementById("toastNotification");
 
 let appState = "tracking";
@@ -83,7 +82,6 @@ const settings = {
   puzzleOrientation: "normal",
   liveMotion: true,
   stripTitle: "PuzzleCam Session",
-  puzzleImage: "camera",
 };
 
 const themeDefaults = {
@@ -92,14 +90,6 @@ const themeDefaults = {
   sunset: { bg: "#14110e", accent: "#e6a34a" },
   arcade: { bg: "#0e0e10", accent: "#f2746b" },
 };
-
-const puzzleImageChoices = [
-  { id: "camera", label: "Camera" },
-  { id: "neon", label: "Neon" },
-  { id: "studio", label: "Studio" },
-  { id: "tropical", label: "Tropic" },
-  { id: "arcade", label: "Arcade" },
-];
 
 const cameraFx = {
   frameCanvas: document.createElement("canvas"),
@@ -181,91 +171,6 @@ function sanitizeTitle(value) {
   return (value || "PuzzleCam Session").trim().slice(0, 28) || "PuzzleCam Session";
 }
 
-function drawProceduralImage(targetCanvas, variant) {
-  const w = targetCanvas.width;
-  const h = targetCanvas.height;
-  const imageCtx = targetCanvas.getContext("2d");
-  const gradient = imageCtx.createLinearGradient(0, 0, w, h);
-
-  if (variant === "studio") {
-    gradient.addColorStop(0, "#f7f8fb");
-    gradient.addColorStop(1, "#8692a8");
-  } else if (variant === "tropical") {
-    gradient.addColorStop(0, "#ff7a59");
-    gradient.addColorStop(0.55, "#ffcf6b");
-    gradient.addColorStop(1, "#1fc7b6");
-  } else if (variant === "arcade") {
-    gradient.addColorStop(0, "#0a0620");
-    gradient.addColorStop(0.5, "#22145a");
-    gradient.addColorStop(1, "#06070d");
-  } else {
-    gradient.addColorStop(0, "#0b1028");
-    gradient.addColorStop(0.45, "#651fff");
-    gradient.addColorStop(1, "#00d4ff");
-  }
-
-  imageCtx.fillStyle = gradient;
-  imageCtx.fillRect(0, 0, w, h);
-
-  if (variant === "studio") {
-    imageCtx.fillStyle = "rgba(255,255,255,0.58)";
-    imageCtx.fillRect(w * 0.12, h * 0.16, w * 0.76, h * 0.62);
-    imageCtx.strokeStyle = "rgba(20,25,34,0.28)";
-    imageCtx.lineWidth = Math.max(2, w * 0.012);
-    imageCtx.strokeRect(w * 0.12, h * 0.16, w * 0.76, h * 0.62);
-    imageCtx.fillStyle = "rgba(25,30,40,0.22)";
-    imageCtx.beginPath();
-    imageCtx.arc(w * 0.34, h * 0.42, w * 0.14, 0, Math.PI * 2);
-    imageCtx.fill();
-  } else if (variant === "tropical") {
-    imageCtx.fillStyle = "rgba(255,255,255,0.8)";
-    imageCtx.beginPath();
-    imageCtx.arc(w * 0.76, h * 0.24, w * 0.13, 0, Math.PI * 2);
-    imageCtx.fill();
-    imageCtx.fillStyle = "rgba(12,91,87,0.45)";
-    for (let i = 0; i < 5; i++) {
-      imageCtx.beginPath();
-      imageCtx.ellipse(w * (0.18 + i * 0.15), h * 0.78, w * 0.12, h * 0.035, -0.5 + i * 0.25, 0, Math.PI * 2);
-      imageCtx.fill();
-    }
-  } else if (variant === "arcade") {
-    imageCtx.strokeStyle = "#7cff00";
-    imageCtx.lineWidth = Math.max(2, w * 0.01);
-    for (let x = 0; x < w; x += w / 8) {
-      imageCtx.beginPath();
-      imageCtx.moveTo(x, 0);
-      imageCtx.lineTo(w / 2 + (x - w / 2) * 0.35, h);
-      imageCtx.stroke();
-    }
-    imageCtx.strokeStyle = "#ff2bd6";
-    for (let y = h * 0.55; y < h; y += h / 10) {
-      imageCtx.beginPath();
-      imageCtx.moveTo(0, y);
-      imageCtx.lineTo(w, y);
-      imageCtx.stroke();
-    }
-  } else {
-    imageCtx.strokeStyle = "rgba(255,255,255,0.82)";
-    imageCtx.lineWidth = Math.max(2, w * 0.012);
-    for (let i = 0; i < 6; i++) {
-      imageCtx.beginPath();
-      imageCtx.arc(w * (0.18 + i * 0.13), h * (0.28 + (i % 2) * 0.25), w * 0.12, 0, Math.PI * 2);
-      imageCtx.stroke();
-    }
-    imageCtx.fillStyle = "rgba(255,61,242,0.55)";
-    imageCtx.fillRect(w * 0.16, h * 0.68, w * 0.68, h * 0.08);
-  }
-
-}
-
-function createProceduralCanvas(width, height, variant) {
-  const generated = document.createElement("canvas");
-  generated.width = width;
-  generated.height = height;
-  drawProceduralImage(generated, variant);
-  return generated;
-}
-
 function applyTheme(theme, useDefaults = false) {
   settings.theme = theme;
   document.body.classList.remove("theme-cyberpunk", "theme-studio", "theme-sunset", "theme-arcade");
@@ -284,46 +189,6 @@ function applyBackgroundFx(effect) {
   settings.backgroundFx = effect;
   document.body.classList.remove("fx-prism", "fx-static", "fx-scanlines", "fx-hypno", "fx-none");
   document.body.classList.add(`fx-${effect}`);
-}
-
-function renderImageGallery() {
-  if (!imageGallery) return;
-  imageGallery.innerHTML = "";
-
-  puzzleImageChoices.forEach((choice) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "image-choice";
-    button.title = choice.label;
-    button.setAttribute("role", "option");
-    button.setAttribute("aria-label", choice.label);
-
-    const preview = document.createElement("canvas");
-    preview.width = 120;
-    preview.height = 120;
-    if (choice.id === "camera") {
-      const previewCtx = preview.getContext("2d");
-      previewCtx.fillStyle = "#0b0c0e";
-      previewCtx.fillRect(0, 0, preview.width, preview.height);
-      previewCtx.strokeStyle = settings.accentColor;
-      previewCtx.lineWidth = 5;
-      previewCtx.strokeRect(22, 32, 76, 50);
-      previewCtx.beginPath();
-      previewCtx.arc(60, 57, 16, 0, Math.PI * 2);
-      previewCtx.stroke();
-    } else {
-      drawProceduralImage(preview, choice.id);
-    }
-
-    button.appendChild(preview);
-    button.classList.toggle("is-selected", settings.puzzleImage === choice.id);
-    button.setAttribute("aria-selected", settings.puzzleImage === choice.id ? "true" : "false");
-    button.addEventListener("click", () => {
-      settings.puzzleImage = choice.id;
-      renderImageGallery();
-    });
-    imageGallery.appendChild(button);
-  });
 }
 
 function showToast(message, duration = 2800) {
@@ -1148,30 +1013,23 @@ function drawCountdownOverlay(box) {
     sampleCanvas.width = cropW;
     sampleCanvas.height = cropH;
     const sCtx = sampleCanvas.getContext("2d");
-    if (settings.puzzleImage === "camera") {
-      sCtx.save();
-      sCtx.drawImage(
-        videoEl,
-        0, 0, videoEl.videoWidth, videoEl.videoHeight,
-        0, 0, cropW, cropH
-      );
-      sCtx.restore();
-      // Mirror horizontal for natural webcam feel
-      const mirroredSample = document.createElement("canvas");
-      mirroredSample.width = cropW;
-      mirroredSample.height = cropH;
-      const mCtx = mirroredSample.getContext("2d");
-      mCtx.translate(cropW, 0);
-      mCtx.scale(-1, 1);
-      mCtx.drawImage(sampleCanvas, 0, 0);
-      applyPhotoFilterToCanvas(mirroredSample, settings.photoFilter);
-      countdownBurst.frames.push(applyPuzzleOrientation(mirroredSample));
-    } else {
-      const selectedImage = createProceduralCanvas(cropW, cropH, settings.puzzleImage);
-      sCtx.drawImage(selectedImage, 0, 0, cropW, cropH);
-      applyPhotoFilterToCanvas(sampleCanvas, settings.photoFilter);
-      countdownBurst.frames.push(applyPuzzleOrientation(sampleCanvas));
-    }
+    sCtx.save();
+    sCtx.drawImage(
+      videoEl,
+      0, 0, videoEl.videoWidth, videoEl.videoHeight,
+      0, 0, cropW, cropH
+    );
+    sCtx.restore();
+    // Mirror horizontal for natural webcam feel
+    const mirroredSample = document.createElement("canvas");
+    mirroredSample.width = cropW;
+    mirroredSample.height = cropH;
+    const mCtx = mirroredSample.getContext("2d");
+    mCtx.translate(cropW, 0);
+    mCtx.scale(-1, 1);
+    mCtx.drawImage(sampleCanvas, 0, 0);
+    applyPhotoFilterToCanvas(mirroredSample, settings.photoFilter);
+    countdownBurst.frames.push(applyPuzzleOrientation(mirroredSample));
     if (countdownBurst.frames.length > 10) {
       countdownBurst.frames.shift();
     }
@@ -1241,16 +1099,11 @@ function finishCountdownAndCapture(box) {
   cropCanvas.width = Math.max(1, Math.round(box.width));
   cropCanvas.height = Math.max(1, Math.round(box.height));
   const cropCtx = cropCanvas.getContext("2d");
-  if (settings.puzzleImage === "camera") {
-    cropCtx.drawImage(
-      mirroredFrame,
-      box.x, box.y, box.width, box.height,
-      0, 0, cropCanvas.width, cropCanvas.height
-    );
-  } else {
-    const selectedImage = createProceduralCanvas(cropCanvas.width, cropCanvas.height, settings.puzzleImage);
-    cropCtx.drawImage(selectedImage, 0, 0, cropCanvas.width, cropCanvas.height);
-  }
+  cropCtx.drawImage(
+    mirroredFrame,
+    box.x, box.y, box.width, box.height,
+    0, 0, cropCanvas.width, cropCanvas.height
+  );
 
   applyPhotoFilterToCanvas(cropCanvas, settings.photoFilter);
   const orientedCropCanvas = applyPuzzleOrientation(cropCanvas);
@@ -2095,7 +1948,6 @@ function resetLoaderUI() {
 if (themeSelect) {
   themeSelect.addEventListener("change", () => {
     applyTheme(themeSelect.value, true);
-    renderImageGallery();
   });
 }
 
@@ -2116,12 +1968,14 @@ if (accentColorInput) {
   accentColorInput.addEventListener("input", () => {
     settings.accentColor = accentColorInput.value;
     document.body.style.setProperty("--accent", settings.accentColor);
-    renderImageGallery();
   });
 }
 
 if (stripTitleInput) {
   stripTitleInput.addEventListener("input", () => {
+    settings.stripTitle = stripTitleInput.value;
+  });
+  stripTitleInput.addEventListener("blur", () => {
     settings.stripTitle = sanitizeTitle(stripTitleInput.value);
     stripTitleInput.value = settings.stripTitle;
   });
@@ -2129,7 +1983,6 @@ if (stripTitleInput) {
 
 applyTheme(settings.theme);
 applyBackgroundFx(settings.backgroundFx);
-renderImageGallery();
 
 async function boot() {
   resetLoaderUI();
