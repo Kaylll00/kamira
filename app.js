@@ -75,8 +75,8 @@ let appState = "tracking";
 
 const settings = {
   theme: "cyberpunk",
-  bgColor: "#070816",
-  accentColor: "#00e5ff",
+  bgColor: "#0b0c0e",
+  accentColor: "#8b93ff",
   backgroundFx: "none",
   layout: "strip",
   photoFilter: "photobooth",
@@ -87,10 +87,10 @@ const settings = {
 };
 
 const themeDefaults = {
-  cyberpunk: { bg: "#070816", accent: "#00e5ff" },
-  studio: { bg: "#111318", accent: "#e7eef8" },
-  sunset: { bg: "#180b22", accent: "#ffb86b" },
-  arcade: { bg: "#05050b", accent: "#7cff00" },
+  cyberpunk: { bg: "#0b0c0e", accent: "#8b93ff" },
+  studio: { bg: "#101114", accent: "#d7dae0" },
+  sunset: { bg: "#14110e", accent: "#e6a34a" },
+  arcade: { bg: "#0e0e10", accent: "#f2746b" },
 };
 
 const puzzleImageChoices = [
@@ -166,15 +166,15 @@ function getAccentColor() {
 }
 
 function getAccentTwoColor() {
-  return cssVar("--accent-2") || "#ff3df2";
+  return cssVar("--accent-2") || "#b9bec9";
 }
 
 function getOkColor() {
-  return cssVar("--ok") || "#4ade80";
+  return cssVar("--ok") || "#57c99b";
 }
 
 function getPaperColor() {
-  return cssVar("--paper") || "#f7fbff";
+  return cssVar("--paper") || "#e9eaee";
 }
 
 function sanitizeTitle(value) {
@@ -303,7 +303,7 @@ function renderImageGallery() {
     preview.height = 120;
     if (choice.id === "camera") {
       const previewCtx = preview.getContext("2d");
-      previewCtx.fillStyle = "#070816";
+      previewCtx.fillStyle = "#0b0c0e";
       previewCtx.fillRect(0, 0, preview.width, preview.height);
       previewCtx.strokeStyle = settings.accentColor;
       previewCtx.lineWidth = 5;
