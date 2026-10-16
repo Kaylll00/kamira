@@ -1,7 +1,6 @@
 import {
   FilesetResolver,
   HandLandmarker,
-  ImageSegmenter,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
 const LM = {
@@ -78,7 +77,7 @@ const settings = {
   theme: "cyberpunk",
   bgColor: "#070816",
   accentColor: "#00e5ff",
-  backgroundFx: "aurora",
+  backgroundFx: "none",
   layout: "strip",
   photoFilter: "photobooth",
   puzzleOrientation: "normal",
@@ -105,30 +104,8 @@ const puzzleImageChoices = [
 const cameraFx = {
   frameCanvas: document.createElement("canvas"),
   frameCtx: null,
-  blurCanvas: document.createElement("canvas"),
-  blurCtx: null,
 };
 cameraFx.frameCtx = cameraFx.frameCanvas.getContext("2d", { willReadFrequently: true });
-cameraFx.blurCtx = cameraFx.blurCanvas.getContext("2d");
-
-let imageSegmenter = null;
-
-const segmentationState = {
-  maskCanvas: document.createElement("canvas"),
-  maskCtx: null,
-  rawCanvas: document.createElement("canvas"),
-  rawCtx: null,
-  personCanvas: document.createElement("canvas"),
-  personCtx: null,
-  rawImageData: null,
-  rawUint32: null,
-  hasSegmentation: false,
-  lastUpdateMs: 0,
-};
-
-segmentationState.maskCtx = segmentationState.maskCanvas.getContext("2d", { willReadFrequently: true });
-segmentationState.rawCtx = segmentationState.rawCanvas.getContext("2d", { willReadFrequently: true });
-segmentationState.personCtx = segmentationState.personCanvas.getContext("2d", { willReadFrequently: true });
 
 const smoothedBox = {
   x: 0,
@@ -305,7 +282,7 @@ function applyTheme(theme, useDefaults = false) {
 
 function applyBackgroundFx(effect) {
   settings.backgroundFx = effect;
-  document.body.classList.remove("fx-aurora", "fx-prism", "fx-static", "fx-scanlines", "fx-hypno", "fx-none");
+  document.body.classList.remove("fx-prism", "fx-static", "fx-scanlines", "fx-hypno", "fx-none");
   document.body.classList.add(`fx-${effect}`);
 }
 
@@ -1075,116 +1052,7 @@ async function initVisionModels() {
     );
   }
 
-  let imgSeg = null;
-  try {
-    imgSeg = await withTimeout(
-      ImageSegmenter.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
-          delegate: "GPU",
-        },
-        runningMode: "VIDEO",
-        outputCategoryMask: true,
-        outputConfidenceMasks: false,
-      }),
-      LOAD_TIMEOUT_MS,
-      "Timed out downloading Selfie Segmenter (GPU)."
-    );
-  } catch (gpuSegErr) {
-    console.warn("[PuzzleCam] GPU delegate failed for ImageSegmenter, retrying with CPU...", gpuSegErr);
-    try {
-      imgSeg = await withTimeout(
-        ImageSegmenter.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath:
-              "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
-            delegate: "CPU",
-          },
-          runningMode: "VIDEO",
-          outputCategoryMask: true,
-          outputConfidenceMasks: false,
-        }),
-        LOAD_TIMEOUT_MS,
-        "Timed out downloading Selfie Segmenter (CPU)."
-      );
-    } catch (cpuSegErr) {
-      console.warn("[PuzzleCam] ImageSegmenter failed to load. Falling back to shape mask.", cpuSegErr);
-    }
-  }
-
-  return { handLandmarker: handLm, imageSegmenter: imgSeg };
-}
-
-let isSegmenting = false;
-let lastSegmentationTime = 0;
-const SEGMENTATION_INTERVAL_MS = 45; // ~22 FPS max for segmenter to maintain 60fps hand tracking
-
-function runSegmentation(nowMs) {
-  if (!imageSegmenter || videoEl.readyState < 2 || isSegmenting) return;
-  if (nowMs - lastSegmentationTime < SEGMENTATION_INTERVAL_MS) return;
-  lastSegmentationTime = nowMs;
-  isSegmenting = true;
-  try {
-    imageSegmenter.segmentForVideo(videoEl, nowMs, (result) => {
-      try {
-        if (result && result.categoryMask) {
-          updateSegmentationMask(result.categoryMask);
-          result.categoryMask.close();
-        }
-      } catch (e) {
-        console.warn("[PuzzleCam] Error in segmentation callback:", e);
-      } finally {
-        isSegmenting = false;
-      }
-    });
-  } catch (err) {
-    isSegmenting = false;
-    console.warn("[PuzzleCam] segmentForVideo call failed:", err);
-  }
-}
-
-function updateSegmentationMask(categoryMask) {
-  const maskW = categoryMask.width;
-  const maskH = categoryMask.height;
-  if (!maskW || !maskH) return;
-
-  const maskBytes = categoryMask.getAsUint8Array();
-  if (!maskBytes || maskBytes.length !== maskW * maskH) return;
-
-  if (segmentationState.rawCanvas.width !== maskW || segmentationState.rawCanvas.height !== maskH) {
-    segmentationState.rawCanvas.width = maskW;
-    segmentationState.rawCanvas.height = maskH;
-    segmentationState.rawImageData = segmentationState.rawCtx.createImageData(maskW, maskH);
-    segmentationState.rawUint32 = new Uint32Array(segmentationState.rawImageData.data.buffer);
-  }
-
-  const data32 = segmentationState.rawUint32;
-  for (let i = 0; i < maskBytes.length; i++) {
-    data32[i] = maskBytes[i] === 0 ? 0xFFFFFFFF : 0x00FFFFFF;
-  }
-
-  segmentationState.rawCtx.putImageData(segmentationState.rawImageData, 0, 0);
-
-  const targetW = canvas.width || videoEl.videoWidth || 640;
-  const targetH = canvas.height || videoEl.videoHeight || 480;
-
-  if (segmentationState.maskCanvas.width !== targetW || segmentationState.maskCanvas.height !== targetH) {
-    segmentationState.maskCanvas.width = targetW;
-    segmentationState.maskCanvas.height = targetH;
-  }
-
-  const mCtx = segmentationState.maskCtx;
-  mCtx.clearRect(0, 0, targetW, targetH);
-  mCtx.save();
-  mCtx.filter = "blur(4px)";
-  mCtx.translate(targetW, 0);
-  mCtx.scale(-1, 1);
-  mCtx.drawImage(segmentationState.rawCanvas, 0, 0, targetW, targetH);
-  mCtx.restore();
-
-  segmentationState.hasSegmentation = true;
-  segmentationState.lastUpdateMs = performance.now();
+  return { handLandmarker: handLm };
 }
 
 function dist2D(a, b) {
@@ -1732,12 +1600,6 @@ function ensureCameraFxCanvas(width, height) {
     cameraFx.frameCanvas.width = width;
     cameraFx.frameCanvas.height = height;
   }
-  const downW = Math.max(160, Math.round(width / 3.5));
-  const downH = Math.max(90, Math.round(height / 3.5));
-  if (cameraFx.blurCanvas.width !== downW || cameraFx.blurCanvas.height !== downH) {
-    cameraFx.blurCanvas.width = downW;
-    cameraFx.blurCanvas.height = downH;
-  }
 }
 
 function drawMirroredVideo(targetCtx, width, height) {
@@ -1745,15 +1607,6 @@ function drawMirroredVideo(targetCtx, width, height) {
   targetCtx.translate(width, 0);
   targetCtx.scale(-1, 1);
   targetCtx.drawImage(videoEl, 0, 0, width, height);
-  targetCtx.restore();
-}
-
-function drawSharpPortraitWindow(targetCtx, width, height) {
-  targetCtx.save();
-  targetCtx.beginPath();
-  targetCtx.ellipse(width * 0.5, height * 0.53, width * 0.24, height * 0.46, 0, 0, Math.PI * 2);
-  targetCtx.clip();
-  drawMirroredVideo(targetCtx, width, height);
   targetCtx.restore();
 }
 
@@ -1837,56 +1690,10 @@ function drawCameraFrame(targetCtx, width, height) {
 
   ensureCameraFxCanvas(width, height);
   const fxCtx = cameraFx.frameCtx;
-  const blurCtx = cameraFx.blurCtx;
-  const downW = cameraFx.blurCanvas.width;
-  const downH = cameraFx.blurCanvas.height;
 
   fxCtx.clearRect(0, 0, width, height);
-
-  if (effect === "aurora") {
-    blurCtx.save();
-    blurCtx.filter = "blur(4px) saturate(130%) brightness(108%)";
-    drawMirroredVideo(blurCtx, downW, downH);
-    blurCtx.restore();
-
-    fxCtx.imageSmoothingEnabled = true;
-    fxCtx.imageSmoothingQuality = "medium";
-    fxCtx.drawImage(cameraFx.blurCanvas, 0, 0, width, height);
-
-    const glow = fxCtx.createRadialGradient(width * 0.5, height * 0.42, 0, width * 0.5, height * 0.42, width * 0.56);
-    glow.addColorStop(0, "rgba(255,255,255,0.08)");
-    glow.addColorStop(0.48, `${getAccentColor()}20`);
-    glow.addColorStop(1, "rgba(0,0,0,0.38)");
-    fxCtx.fillStyle = glow;
-    fxCtx.fillRect(0, 0, width, height);
-  } else {
-    fxCtx.save();
-    fxCtx.filter = "blur(3px) saturate(140%) contrast(110%)";
-    drawMirroredVideo(fxCtx, width, height);
-    fxCtx.restore();
-    drawCameraPatternOverlay(fxCtx, width, height, effect);
-  }
-
-  const isSegFresh = segmentationState.hasSegmentation && (performance.now() - segmentationState.lastUpdateMs < 1200);
-
-  if (isSegFresh) {
-    if (segmentationState.personCanvas.width !== width || segmentationState.personCanvas.height !== height) {
-      segmentationState.personCanvas.width = width;
-      segmentationState.personCanvas.height = height;
-    }
-    const pCtx = segmentationState.personCtx;
-    pCtx.clearRect(0, 0, width, height);
-
-    drawMirroredVideo(pCtx, width, height);
-
-    pCtx.globalCompositeOperation = "destination-in";
-    pCtx.drawImage(segmentationState.maskCanvas, 0, 0, width, height);
-    pCtx.globalCompositeOperation = "source-over";
-
-    fxCtx.drawImage(segmentationState.personCanvas, 0, 0, width, height);
-  } else {
-    drawSharpPortraitWindow(fxCtx, width, height);
-  }
+  drawMirroredVideo(fxCtx, width, height);
+  drawCameraPatternOverlay(fxCtx, width, height, effect);
 
   targetCtx.drawImage(cameraFx.frameCanvas, 0, 0, width, height);
 }
@@ -2259,9 +2066,6 @@ function processResults(result) {
 function renderLoop() {
   if (videoEl.readyState >= 2 && handLandmarker) {
     const nowMs = performance.now();
-    if (imageSegmenter && settings.backgroundFx !== "none") {
-      runSegmentation(nowMs);
-    }
     drawVideoFrame();
     const result = handLandmarker.detectForVideo(videoEl, nowMs);
     processResults(result);
@@ -2345,7 +2149,6 @@ async function boot() {
 
     const models = await initVisionModels();
     handLandmarker = models.handLandmarker;
-    imageSegmenter = models.imageSegmenter;
 
     settled = true;
     clearTimeout(watchdog);

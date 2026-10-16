@@ -90,7 +90,7 @@ body::before{
   animation:backdropDrift 12s ease-in-out infinite alternate;
 }
 
-body.fx-aurora::before{
+body.fx-none::before{
   opacity:0.92;
 }
 
@@ -136,7 +136,6 @@ body.fx-hypno::after{
   animation:hypnoTurn 18s linear infinite;
 }
 
-body.fx-none::before,
 body.fx-none::after{
   display:none;
 }
