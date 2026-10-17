@@ -81,6 +81,9 @@ const qrOverlayCanvas = document.getElementById("qrOverlayCanvas");
 const qrOverlayLink = document.getElementById("qrOverlayLink");
 const qrCopyBtn = document.getElementById("qrCopyBtn");
 const qrCloseBtn = document.getElementById("qrCloseBtn");
+const confirmOverlay = document.getElementById("confirmOverlay");
+const confirmResetBtn = document.getElementById("confirmResetBtn");
+const confirmCancelBtn = document.getElementById("confirmCancelBtn");
 
 let appState = "tracking";
 
@@ -437,6 +440,16 @@ function showQrOverlay(url) {
 
 function hideQrOverlay() {
   if (qrOverlay) qrOverlay.classList.remove("visible");
+}
+
+function showConfirmReset() {
+  if (!confirmOverlay) return;
+  confirmOverlay.classList.add("visible");
+  if (confirmCancelBtn) confirmCancelBtn.focus();
+}
+
+function hideConfirmReset() {
+  if (confirmOverlay) confirmOverlay.classList.remove("visible");
 }
 
 async function shareChallenge() {
@@ -2684,17 +2697,31 @@ if (qrOverlay) {
 }
 
 document.addEventListener("keydown", (evt) => {
-  if (evt.key === "Escape") hideQrOverlay();
+  if (evt.key !== "Escape") return;
+  hideQrOverlay();
+  hideConfirmReset();
 });
 
 updateStripDownloadAvailability();
 
 if (resetAllBtn) {
-  resetAllBtn.addEventListener("click", () => {
-    const confirmed = window.confirm(
-      "Clear the whole photo strip and start over?"
-    );
-    if (confirmed) resetEverything();
+  resetAllBtn.addEventListener("click", showConfirmReset);
+}
+
+if (confirmResetBtn) {
+  confirmResetBtn.addEventListener("click", () => {
+    hideConfirmReset();
+    resetEverything();
+  });
+}
+
+if (confirmCancelBtn) {
+  confirmCancelBtn.addEventListener("click", hideConfirmReset);
+}
+
+if (confirmOverlay) {
+  confirmOverlay.addEventListener("click", (evt) => {
+    if (evt.target === confirmOverlay) hideConfirmReset();
   });
 }
 

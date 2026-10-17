@@ -169,6 +169,27 @@
   </div>
 </div>
 
+<div id="confirmOverlay" class="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+  <div class="confirm-card">
+    <div class="confirm-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+      </svg>
+    </div>
+    <h2 id="confirmTitle" class="confirm-title">Reset everything?</h2>
+    <p id="confirmMessage" class="confirm-message">
+      This clears all saved puzzles, solve recordings and the current challenge.
+      It can't be undone.
+    </p>
+    <div class="confirm-actions">
+      <button type="button" id="confirmCancelBtn" class="gallery-action-btn">Keep my strip</button>
+      <button type="button" id="confirmResetBtn" class="gallery-action-btn gallery-action-btn--danger">Reset all</button>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="./app.js"></script>
 </body>
 </html>

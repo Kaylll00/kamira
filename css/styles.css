@@ -671,7 +671,8 @@ select.control-input option{ color:#0b1020; }
   50%{ opacity:0.45; }
 }
 
-.qr-overlay{
+.qr-overlay,
+.confirm-overlay{
   position:fixed;
   inset:0;
   z-index:1000;
@@ -683,7 +684,8 @@ select.control-input option{ color:#0b1020; }
   backdrop-filter:blur(8px);
   -webkit-backdrop-filter:blur(8px);
 }
-.qr-overlay.visible{ display:flex; }
+.qr-overlay.visible,
+.confirm-overlay.visible{ display:flex; }
 .qr-card{
   display:flex;
   flex-direction:column;
@@ -737,6 +739,66 @@ select.control-input option{ color:#0b1020; }
 .gallery-action-btn--share{
   border-color:color-mix(in srgb, var(--accent) 60%, transparent);
   background:color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* ---------- Confirmation modal (Reset all) ---------- */
+.confirm-card{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:12px;
+  width:min(360px, 100%);
+  max-height:100%;
+  overflow:auto;
+  padding:26px 22px 20px;
+  border-radius:16px;
+  border:1px solid var(--line);
+  background:var(--panel-strong);
+  box-shadow:var(--shadow);
+  text-align:center;
+}
+.confirm-icon{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:52px;
+  height:52px;
+  border-radius:999px;
+  border:1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  background:color-mix(in srgb, var(--danger) 14%, transparent);
+  color:var(--danger);
+}
+.confirm-title{
+  margin:2px 0 0;
+  color:var(--paper);
+  font-family:var(--sans);
+  font-size:18px;
+  font-weight:800;
+  letter-spacing:-0.01em;
+}
+.confirm-message{
+  margin:0;
+  max-width:32ch;
+  color:var(--muted);
+  font-family:var(--mono);
+  font-size:12px;
+  line-height:1.7;
+}
+.confirm-actions{
+  display:flex;
+  gap:10px;
+  width:100%;
+  margin-top:6px;
+}
+.confirm-actions .gallery-action-btn{ flex:1 1 auto; }
+
+@media (prefers-reduced-motion: no-preference){
+  .qr-card,
+  .confirm-card{ animation:modalIn 0.18s ease; }
+}
+@keyframes modalIn{
+  from{ opacity:0; transform:translateY(8px) scale(0.98); }
+  to{ opacity:1; transform:none; }
 }
 
 
