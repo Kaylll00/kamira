@@ -79,7 +79,7 @@ Puzzle/
 | Gesture | Action |
 |---|---|
 | Both hands pinching | Freeze the area and start the countdown |
-| One hand pinching over a piece | Drag the puzzle piece |
+| One hand pinching over a piece | Drag a loose puzzle piece (correctly-placed pieces lock in place) |
 | Closed fist (hold) | Save completed puzzle / Reset board |
 
 Use the **Puzzle orientation** control to enable **Mirror mode**. The next captured puzzle
@@ -93,7 +93,7 @@ stays unchanged.
 1. Show both hands to the camera and pinch to define the capture frame
 2. Hold the pinch during the countdown — the photo is taken automatically
 3. The photo is split into a 3x3 puzzle with a black-and-white photobooth filter
-4. Rearrange the pieces with pinch gestures
+4. Rearrange the pieces with pinch gestures — each piece locks into place once it's in the correct spot
 5. When complete, close your fist to save it to the strip with a shatter animation
 6. Download the full strip once you have 3 saved puzzles
 

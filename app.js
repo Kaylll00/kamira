@@ -1256,6 +1256,8 @@ function displaceCellOccupant(piece, targetRow, targetCol, box, tileW, tileH) {
   if (!occupant) return;
 
   if (occupant.row === targetRow && occupant.col === targetCol && occupant.placed) {
+    // The occupant is locked in its correct spot — move the incoming piece aside.
+    relocateToFreeCell(piece, box, tileW, tileH, occupant);
     return;
   }
 
@@ -1292,6 +1294,35 @@ function displaceCellOccupant(piece, targetRow, targetCol, box, tileW, tileH) {
   animateDisplacement(occupant, targetX, targetY, box);
 }
 
+// Send a piece to a random empty cell (never its own, so it can't auto-lock).
+function relocateToFreeCell(piece, box, tileW, tileH, avoid) {
+  const freeCells = [];
+  for (let row = 0; row < GRID; row++) {
+    for (let col = 0; col < GRID; col++) {
+      if (row === piece.row && col === piece.col) continue;
+      const cx0 = box.x + col * tileW;
+      const cy0 = box.y + row * tileH;
+      const taken = puzzle.pieces.some((p) => {
+        if (p === piece || p === avoid || p.displacing) return false;
+        const cx = p.x + p.w / 2;
+        const cy = p.y + p.h / 2;
+        return cx >= cx0 && cx < cx0 + tileW && cy >= cy0 && cy < cy0 + tileH;
+      });
+      if (!taken) freeCells.push({ row, col });
+    }
+  }
+
+  if (freeCells.length === 0) {
+    clampPieceToBoard(piece);
+    return;
+  }
+
+  const slot = freeCells[Math.floor(Math.random() * freeCells.length)];
+  const jitterX = (Math.random() - 0.5) * tileW * 0.5;
+  const jitterY = (Math.random() - 0.5) * tileH * 0.5;
+  animateDisplacement(piece, box.x + slot.col * tileW + jitterX, box.y + slot.row * tileH + jitterY, box);
+}
+
 const DISPLACE_ANIM_MS = 220;
 
 function animateDisplacement(piece, targetX, targetY, box) {
@@ -1325,7 +1356,7 @@ function findNearestPiece(px, py) {
   let best = null;
   let bestDist = Infinity;
   for (const piece of puzzle.pieces) {
-    if (piece.displacing) continue;
+    if (piece.displacing || piece.placed) continue; // locked in its correct spot
     const cx = piece.x + piece.w / 2;
     const cy = piece.y + piece.h / 2;
     const d = Math.hypot(px - cx, py - cy);
@@ -1388,6 +1419,39 @@ function clampPieceToBoard(piece) {
   piece.y = Math.min(Math.max(piece.y, box.y), box.y + box.height - piece.h);
 }
 
+function drawPieceLock(piece) {
+  const s = Math.max(12, Math.min(piece.w, piece.h) * 0.26);
+  const pad = s * 0.3;
+  const cx = piece.x + piece.w - pad - s * 0.5;
+  const cy = piece.y + pad + s * 0.5;
+  const bodyW = s * 0.58;
+  const bodyH = s * 0.46;
+  const bodyX = cx - bodyW / 2;
+  const bodyY = cy - s * 0.02;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.beginPath();
+  ctx.arc(cx, cy, s * 0.62, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = getOkColor();
+  ctx.lineWidth = Math.max(1.5, s * 0.13);
+  ctx.beginPath();
+  ctx.arc(cx, bodyY, s * 0.2, Math.PI, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = getOkColor();
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(bodyX, bodyY, bodyW, bodyH, s * 0.1);
+  } else {
+    ctx.rect(bodyX, bodyY, bodyW, bodyH);
+  }
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawBoardAndPieces() {
   const box = puzzle.boardBox;
 
@@ -1428,6 +1492,9 @@ function drawBoardAndPieces() {
     ctx.strokeStyle = piece.placed ? getOkColor() : `${getPaperColor()}99`;
     ctx.lineWidth = piece.dragging ? 3 : 1.5;
     ctx.strokeRect(piece.x, piece.y, piece.w, piece.h);
+    if (piece.placed && !piece.dragging) {
+      drawPieceLock(piece);
+    }
     ctx.restore();
   }
 
