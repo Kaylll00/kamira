@@ -66,7 +66,8 @@ only for `localhost`, so use a tunnel (e.g. `ngrok http 5500`) to get an HTTPS U
 ```
 Puzzle/
 ├── index.html        # App entry point
-├── app.js            # Full logic (tracking, puzzle, gallery)
+├── app.js            # Full logic (tracking, puzzle, gallery, sharing)
+├── qrcode.js         # Dependency-free QR code encoder (byte mode)
 ├── css/
 │   └── styles.css    # Styling and layout
 └── .gitignore
@@ -99,14 +100,52 @@ stays unchanged.
 
 ---
 
+## **SHARING**
+
+Every finished puzzle records **how long it took** and **how many moves** you made. The
+share pack turns that into something you can send to other people:
+
+### QR code on the strip
+
+Each downloaded strip (Classic, Polaroid, Magazine, or Grid) carries a **QR code** in its
+footer. Scanning it opens the same app — or, once you've solved a puzzle, opens your
+**challenge link** with your time and move count attached.
+
+### Challenge links (seeded puzzle)
+
+The **Share Challenge & QR** button copies a link that encodes:
+
+- the **seed** used to scramble the puzzle, so the recipient gets the exact same scramble
+- your **finish time** and **move count** to beat
+- the **settings** you played with (layout, filter, orientation, motion, title, theme)
+
+Opening a link shows a **"Beat 00:42 · 14 moves"** chip and pre-loads those settings. The
+scramble is reproducible because the shuffle runs on a deterministic, seeded PRNG
+(`mulberry32` + Fisher–Yates) instead of `Math.random()`.
+
+### Solve video (WebM)
+
+While **Record solve video** is on, the app records the canvas with `MediaRecorder` from
+the moment a puzzle appears until it's saved. The **Download Solve Video** button then
+exports the latest recording as a `.webm` (or `.mp4` where WebM isn't supported). A red
+**● REC** badge shows while recording. Turn the toggle off on low-end devices if you don't
+need it.
+
+> The QR encoder in `qrcode.js` is written from scratch (byte mode, versions 1–40, EC
+> levels L/M/Q/H) so the app stays dependency-free and works offline.
+
+---
+
 ## **TECH STACK**
 
 - **[MediaPipe Tasks Vision](https://developers.google.com/mediapipe)** `v0.10.14` — hand landmark detection
 - **Canvas 2D API** — rendering, puzzle pieces, photobooth effect
+- **MediaRecorder + `canvas.captureStream()`** — WebM solve recordings
 - **JavaScript (ES Modules)** — no frameworks
 - **CSS Custom Properties** — theming and layout
 
-All external dependencies are loaded via CDN. No additional installation is required.
+All external dependencies are loaded via CDN, except the QR encoder (`qrcode.js`) which is
+bundled locally. No additional installation is required.
 
 ---
 
@@ -127,6 +166,12 @@ Make sure you're opening the app from a local server (HTTP), not directly as a f
 ### **The pinch gesture isn't detected**
 
 Make sure you have good lighting and that both hands are visible to the camera. Bring your index finger and thumb closer together until the on-screen indicator activates.
+
+### **The solve video button is greyed out**
+
+Check that **Record solve video** is switched on and that you've completed (and saved) a
+puzzle. Solve recording uses `MediaRecorder` with WebM, which Chrome, Edge, and Firefox
+support; Safari records `.mp4` where available.
 
 ---
 

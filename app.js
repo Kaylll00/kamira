@@ -3,6 +3,8 @@ import {
   HandLandmarker,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
+import { createQR, drawQR } from "./qrcode.js";
+
 const LM = {
   WRIST: 0,
   THUMB_TIP: 4,
@@ -69,6 +71,16 @@ const bgColorInput = document.getElementById("bgColorInput");
 const accentColorInput = document.getElementById("accentColorInput");
 const stripTitleInput = document.getElementById("stripTitleInput");
 const toastNotification = document.getElementById("toastNotification");
+const challengeChip = document.getElementById("challengeChip");
+const recBadge = document.getElementById("recBadge");
+const shareChallengeBtn = document.getElementById("shareChallengeBtn");
+const downloadVideoBtn = document.getElementById("downloadVideoBtn");
+const recordSolvesToggle = document.getElementById("recordSolvesToggle");
+const qrOverlay = document.getElementById("qrOverlay");
+const qrOverlayCanvas = document.getElementById("qrOverlayCanvas");
+const qrOverlayLink = document.getElementById("qrOverlayLink");
+const qrCopyBtn = document.getElementById("qrCopyBtn");
+const qrCloseBtn = document.getElementById("qrCloseBtn");
 
 let appState = "tracking";
 
@@ -81,6 +93,7 @@ const settings = {
   photoFilter: "photobooth",
   puzzleOrientation: "normal",
   liveMotion: true,
+  recordSolves: true,
   stripTitle: "PuzzleCam Session",
 };
 
@@ -132,6 +145,12 @@ const puzzle = {
   solved: false,
   tileW: 0,
   tileH: 0,
+  seed: null,
+  nextSeed: null,
+  startedAt: 0,
+  elapsedMs: 0,
+  moves: 0,
+  solveRecorded: false,
 };
 
 const SHATTER_COLS = 6;
@@ -169,6 +188,384 @@ function getPaperColor() {
 
 function sanitizeTitle(value) {
   return (value || "PuzzleCam Session").trim().slice(0, 28) || "PuzzleCam Session";
+}
+
+/* ==========================================================================
+   Share pack — challenge links (seeded puzzles), QR codes, solve recording
+   ========================================================================== */
+
+const challenge = { active: null };
+let lastSolve = null;
+const solveRecorder = { recorder: null, targetEntry: null, recording: false };
+
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.round((ms || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function randomSeed() {
+  return (Math.random() * 0xffffffff) >>> 0;
+}
+
+// Deterministic PRNG so a shared seed always produces the same scramble.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleWithRng(arr, rng) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlToBytes(str) {
+  const padded = str.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function encodePayload(obj) {
+  return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(obj)));
+}
+
+function decodePayload(str) {
+  return JSON.parse(new TextDecoder().decode(base64UrlToBytes(str)));
+}
+
+function buildChallengePayload() {
+  if (!lastSolve) return null;
+  return {
+    v: 1,
+    seed: lastSolve.seed,
+    t: lastSolve.elapsedMs,
+    m: lastSolve.moves,
+    l: lastSolve.layout,
+    f: lastSolve.filter,
+    o: lastSolve.orientation,
+    lm: lastSolve.liveMotion ? 1 : 0,
+    ti: lastSolve.title,
+    th: lastSolve.theme,
+    bg: lastSolve.bg,
+    ac: lastSolve.accent,
+    fx: lastSolve.fx,
+  };
+}
+
+function buildShareUrl() {
+  const base = `${location.origin}${location.pathname}`;
+  const payload = buildChallengePayload();
+  return payload ? `${base}#c=${encodePayload(payload)}` : base;
+}
+
+function readChallengeFromUrl() {
+  const match = (location.hash || "").match(/[#&]c=([A-Za-z0-9_-]+)/);
+  if (!match) return null;
+  try {
+    return decodePayload(match[1]);
+  } catch (err) {
+    console.warn("[PuzzleCam] invalid challenge link:", err);
+    return null;
+  }
+}
+
+function setSelectValue(selectEl, value) {
+  if (!selectEl || typeof value !== "string") return false;
+  const exists = Array.prototype.some.call(
+    selectEl.options,
+    (option) => option.value === value
+  );
+  if (!exists) return false;
+  selectEl.value = value;
+  return true;
+}
+
+function updateChallengeChip() {
+  if (!challengeChip) return;
+  if (!challenge.active) {
+    challengeChip.classList.remove("visible");
+    challengeChip.textContent = "";
+    return;
+  }
+  challengeChip.textContent = `🎯 Beat ${formatDuration(challenge.active.t)} · ${challenge.active.m} moves — same scramble loaded`;
+  challengeChip.classList.add("visible");
+}
+
+function applyChallenge(payload) {
+  if (!payload || typeof payload !== "object") return;
+
+  challenge.active = {
+    t: Number.isFinite(payload.t) ? payload.t : 0,
+    m: Number.isFinite(payload.m) ? payload.m : 0,
+  };
+  if (typeof payload.seed === "number") puzzle.nextSeed = payload.seed >>> 0;
+
+  if (setSelectValue(layoutSelect, payload.l)) settings.layout = payload.l;
+  if (setSelectValue(photoFilterSelect, payload.f)) settings.photoFilter = payload.f;
+  if (setSelectValue(puzzleOrientationSelect, payload.o)) settings.puzzleOrientation = payload.o;
+  if (setSelectValue(backgroundFxSelect, payload.fx)) applyBackgroundFx(payload.fx);
+  if (typeof payload.lm === "number") {
+    settings.liveMotion = !!payload.lm;
+    if (liveMotionToggle) liveMotionToggle.checked = settings.liveMotion;
+  }
+  if (typeof payload.ti === "string") {
+    settings.stripTitle = sanitizeTitle(payload.ti);
+    if (stripTitleInput) stripTitleInput.value = settings.stripTitle;
+  }
+  if (typeof payload.th === "string" && themeDefaults[payload.th]) {
+    applyTheme(payload.th, false);
+  }
+  if (typeof payload.bg === "string") {
+    settings.bgColor = payload.bg;
+    if (bgColorInput) bgColorInput.value = payload.bg;
+  }
+  if (typeof payload.ac === "string") {
+    settings.accentColor = payload.ac;
+    if (accentColorInput) accentColorInput.value = payload.ac;
+  }
+  document.body.style.setProperty("--bg", settings.bgColor);
+  document.body.style.setProperty("--accent", settings.accentColor);
+
+  updateChallengeChip();
+  showToast(
+    `Challenge loaded — beat ${formatDuration(challenge.active.t)} · ${challenge.active.m} moves 🎯`,
+    4600
+  );
+}
+
+let qrMatrixCache = { url: null, matrix: null };
+
+function getQrMatrix(url) {
+  if (qrMatrixCache.url === url && qrMatrixCache.matrix) return qrMatrixCache.matrix;
+  const matrix = createQR(url, { level: "M" });
+  qrMatrixCache = { url, matrix };
+  return matrix;
+}
+
+function drawShareQr(targetCtx, x, y, sizePx) {
+  targetCtx.save();
+  targetCtx.fillStyle = "#ffffff";
+  targetCtx.fillRect(x, y, sizePx, sizePx);
+  let matrix = null;
+  try {
+    matrix = getQrMatrix(buildShareUrl());
+  } catch (err) {
+    matrix = null;
+  }
+  if (matrix) {
+    drawQR(targetCtx, matrix, x, y, sizePx, {
+      dark: "#101010",
+      light: "#ffffff",
+      margin: 3,
+    });
+  } else {
+    targetCtx.fillStyle = "#8a8f99";
+    targetCtx.font = "600 11px 'IBM Plex Mono', monospace";
+    targetCtx.textAlign = "center";
+    targetCtx.textBaseline = "middle";
+    targetCtx.fillText("QR unavailable", x + sizePx / 2, y + sizePx / 2);
+  }
+  targetCtx.restore();
+}
+
+// Shrink (and if needed truncate) text so it fits the given width.
+// Sets the font on targetCtx and returns the string that should be drawn.
+function fitText(targetCtx, text, maxWidth, maxSize, minSize, weight, family) {
+  let size = maxSize;
+  targetCtx.font = `${weight} ${size}px ${family}`;
+  while (size > minSize && targetCtx.measureText(text).width > maxWidth) {
+    size -= 1;
+    targetCtx.font = `${weight} ${size}px ${family}`;
+  }
+  let out = text;
+  if (targetCtx.measureText(out).width > maxWidth) {
+    while (out.length > 1 && targetCtx.measureText(`${out}…`).width > maxWidth) {
+      out = out.slice(0, -1);
+    }
+    out = out.length > 1 ? `${out}…` : out;
+  }
+  return out;
+}
+
+function renderQrToCanvas(targetCanvas, url, cssSize) {
+  if (!targetCanvas) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const px = Math.round(cssSize * dpr);
+  targetCanvas.width = px;
+  targetCanvas.height = px;
+  targetCanvas.style.width = `${cssSize}px`;
+  targetCanvas.style.height = `${cssSize}px`;
+  const c = targetCanvas.getContext("2d");
+  c.clearRect(0, 0, px, px);
+  try {
+    const matrix = getQrMatrix(url);
+    drawQR(c, matrix, 0, 0, px, { dark: "#0b0c0e", light: "#ffffff", margin: 2 });
+  } catch (err) {
+    c.fillStyle = "#ffffff";
+    c.fillRect(0, 0, px, px);
+    c.fillStyle = "#333333";
+    c.font = "600 14px monospace";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText("QR unavailable", px / 2, px / 2);
+  }
+}
+
+function showQrOverlay(url) {
+  if (!qrOverlay) return;
+  if (qrOverlayLink) qrOverlayLink.textContent = url;
+  renderQrToCanvas(qrOverlayCanvas, url, 260);
+  qrOverlay.classList.add("visible");
+}
+
+function hideQrOverlay() {
+  if (qrOverlay) qrOverlay.classList.remove("visible");
+}
+
+async function shareChallenge() {
+  const url = buildShareUrl();
+  let copied = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(url);
+      copied = true;
+    }
+  } catch (err) {
+    copied = false;
+  }
+  showQrOverlay(url);
+  showToast(copied ? "Challenge link copied — scan the QR too! 🔗" : "Scan the QR to share 🔗");
+}
+
+function recordSolveIfNeeded() {
+  if (puzzle.solveRecorded || !puzzle.solved || !puzzle.startedAt) return;
+  puzzle.solveRecorded = true;
+  puzzle.elapsedMs = Math.max(0, Math.round(performance.now() - puzzle.startedAt));
+  lastSolve = {
+    seed: puzzle.seed,
+    elapsedMs: puzzle.elapsedMs,
+    moves: puzzle.moves,
+    layout: settings.layout,
+    filter: settings.photoFilter,
+    orientation: settings.puzzleOrientation,
+    liveMotion: settings.liveMotion,
+    title: sanitizeTitle(settings.stripTitle),
+    theme: settings.theme,
+    bg: settings.bgColor,
+    accent: settings.accentColor,
+    fx: settings.backgroundFx,
+  };
+  showToast(
+    `Solved in ${formatDuration(puzzle.elapsedMs)} · ${puzzle.moves} moves 🎉`,
+    3600
+  );
+}
+
+function pickRecorderMime() {
+  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
+  const candidates = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+    "video/mp4",
+  ];
+  for (const candidate of candidates) {
+    if (MediaRecorder.isTypeSupported(candidate)) return candidate;
+  }
+  return "";
+}
+
+function updateRecBadge() {
+  const on = !!(solveRecorder.recorder && solveRecorder.recorder.state === "recording");
+  solveRecorder.recording = on;
+  if (recBadge) recBadge.classList.toggle("visible", on);
+}
+
+function startSolveRecording() {
+  if (!settings.recordSolves) return;
+  if (solveRecorder.recorder) return;
+  if (typeof MediaRecorder === "undefined" || typeof canvas.captureStream !== "function") {
+    return;
+  }
+
+  const mime = pickRecorderMime();
+  try {
+    const stream = canvas.captureStream(30);
+    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const chunks = [];
+    recorder.ondataavailable = (evt) => {
+      if (evt.data && evt.data.size > 0) chunks.push(evt.data);
+    };
+    recorder.onstop = () => {
+      const blob = chunks.length ? new Blob(chunks, { type: mime || "video/webm" }) : null;
+      const entry = solveRecorder.targetEntry;
+      solveRecorder.recorder = null;
+      solveRecorder.targetEntry = null;
+      updateRecBadge();
+      if (entry && blob) entry.video = blob;
+      updateStripDownloadAvailability();
+    };
+    recorder.start();
+    solveRecorder.recorder = recorder;
+    solveRecorder.targetEntry = null;
+    updateRecBadge();
+  } catch (err) {
+    console.warn("[PuzzleCam] solve recording unavailable:", err);
+    solveRecorder.recorder = null;
+    updateRecBadge();
+  }
+}
+
+function stopSolveRecording(entry) {
+  solveRecorder.targetEntry = entry || null;
+  const recorder = solveRecorder.recorder;
+  if (recorder && recorder.state !== "inactive") {
+    recorder.stop();
+  }
+  updateRecBadge();
+}
+
+function discardSolveRecording() {
+  stopSolveRecording(null);
+}
+
+function downloadSolveVideo() {
+  const entry = [...galleryEntries].reverse().find((e) => e.video);
+  if (!entry) {
+    showToast("No recorded solve video yet 🎬");
+    return;
+  }
+  const url = URL.createObjectURL(entry.video);
+  const link = document.createElement("a");
+  link.href = url;
+  const fileTitle = sanitizeTitle(settings.stripTitle)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+  const ext = entry.video.type.includes("mp4") ? "mp4" : "webm";
+  link.download = `${fileTitle || "puzzlecam"}_solve_${Date.now()}.${ext}`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  showToast("Solve video saved! 🎬");
 }
 
 function applyTheme(theme, useDefaults = false) {
@@ -291,10 +688,11 @@ function applyPuzzleOrientation(sourceCanvas) {
 }
 
 function addToGallery(snapshotCanvas, boomerangFrames = null) {
-  if (galleryEntries.length >= STRIP_MAX_PHOTOS) return;
+  if (galleryEntries.length >= STRIP_MAX_PHOTOS) return null;
 
   const frames = boomerangFrames && boomerangFrames.length > 0 ? boomerangFrames : [snapshotCanvas];
-  galleryEntries.push({ canvas: snapshotCanvas, frames, time: Date.now() });
+  const entry = { canvas: snapshotCanvas, frames, time: Date.now() };
+  galleryEntries.push(entry);
   renderGalleryThumb(snapshotCanvas, galleryEntries.length);
   galleryCount.textContent = `${galleryEntries.length} / ${STRIP_MAX_PHOTOS}`;
   if (galleryEmpty) galleryEmpty.style.display = "none";
@@ -302,6 +700,7 @@ function addToGallery(snapshotCanvas, boomerangFrames = null) {
   if (galleryEntries.length >= STRIP_MAX_PHOTOS) {
     showStripComplete();
   }
+  return entry;
 }
 
 function isStripFull() {
@@ -319,25 +718,12 @@ function hideStripComplete() {
 
 function updateStripDownloadAvailability() {
   const hasEntries = galleryEntries.length > 0;
+  const hasVideo = galleryEntries.some((entry) => entry.video);
   if (downloadStripBtn) downloadStripBtn.disabled = !hasEntries;
   if (downloadGifBtn) downloadGifBtn.disabled = !hasEntries;
   if (copyClipboardBtn) copyClipboardBtn.disabled = !hasEntries;
-}
-
-function drawBarcodeGraphic(targetCtx, x, y, width, height, dark = true) {
-  targetCtx.save();
-  targetCtx.fillStyle = dark ? "#111" : "#fff";
-  let cursorX = x;
-  let i = 0;
-  while (cursorX < x + width) {
-    const barW = (i % 3 === 0) ? 3 : (i % 2 === 0 ? 1 : 2);
-    if (i % 2 === 0) {
-      targetCtx.fillRect(cursorX, y, barW, height);
-    }
-    cursorX += barW + 1;
-    i++;
-  }
-  targetCtx.restore();
+  if (shareChallengeBtn) shareChallengeBtn.disabled = !hasEntries;
+  if (downloadVideoBtn) downloadVideoBtn.disabled = !hasVideo;
 }
 
 function renderLayoutCanvas(entries, layout = "strip", frameIndex = 0) {
@@ -363,8 +749,9 @@ function renderLayoutCanvas(entries, layout = "strip", frameIndex = 0) {
 
   if (layout === "polaroid") {
     const padding = 28;
-    const bottomExtra = 90;
     const totalW = targetW + padding * 2;
+    const qrSize = Math.min(128, Math.max(72, Math.round(totalW * 0.24)));
+    const bottomExtra = 44 + qrSize;
     const totalH = targetH + padding + bottomExtra;
 
     const out = document.createElement("canvas");
@@ -385,25 +772,36 @@ function renderLayoutCanvas(entries, layout = "strip", frameIndex = 0) {
     outCtx.lineWidth = 1;
     outCtx.strokeRect(padding, padding, targetW, targetH);
 
+    const qrX = totalW - padding - qrSize;
+    const qrY = totalH - padding - qrSize;
+    const textMaxW = Math.max(40, qrX - (padding + 4) - 16);
+    const dateLine = `${dateStr} • SHOT #${String(entries.length).padStart(2, "0")}`;
+
     outCtx.fillStyle = "#1e2230";
-    outCtx.font = "800 24px 'IBM Plex Mono', monospace";
     outCtx.textAlign = "left";
     outCtx.textBaseline = "middle";
-    outCtx.fillText(titleText, padding + 4, targetH + padding + 36);
+    const drawTitle = fitText(outCtx, titleText, textMaxW, 24, 12, "800", "'IBM Plex Mono', monospace");
+    outCtx.fillText(drawTitle, padding + 4, targetH + padding + 34);
 
     outCtx.fillStyle = "#667085";
-    outCtx.font = "600 13px 'IBM Plex Mono', monospace";
-    outCtx.textAlign = "left";
-    outCtx.fillText(`${dateStr} • SHOT #${String(entries.length).padStart(2, "0")}`, padding + 4, targetH + padding + 64);
+    const drawDate = fitText(outCtx, dateLine, textMaxW, 13, 9, "600", "'IBM Plex Mono', monospace");
+    outCtx.fillText(drawDate, padding + 4, targetH + padding + 60);
 
-    drawBarcodeGraphic(outCtx, totalW - padding - 85, targetH + padding + 28, 80, 42, true);
+    drawShareQr(outCtx, qrX, qrY, qrSize);
+    outCtx.fillStyle = "#667085";
+    outCtx.font = "700 10px 'IBM Plex Mono', monospace";
+    outCtx.textAlign = "center";
+    outCtx.textBaseline = "top";
+    outCtx.fillText("SCAN TO PLAY", qrX + qrSize / 2, qrY + qrSize + 8);
 
     return out;
   }
 
   if (layout === "magazine") {
     const totalW = targetW + 48;
-    const totalH = targetH + 160;
+    const qrSize = Math.min(150, Math.max(76, Math.round(totalW * 0.26)));
+    const footerH = 44 + qrSize;
+    const totalH = targetH + 76 + footerH;
 
     const out = document.createElement("canvas");
     out.width = totalW;
@@ -431,17 +829,29 @@ function renderLayoutCanvas(entries, layout = "strip", frameIndex = 0) {
     outCtx.lineWidth = 2;
     outCtx.strokeRect(24, 76, targetW, targetH);
 
+    const qrX = totalW - 28 - qrSize;
+    const qrY = totalH - 28 - qrSize;
+    const footerTop = totalH - footerH + 14;
+    const textMaxW = Math.max(40, qrX - 28 - 16);
+    const magTitle = titleText.toUpperCase();
+    const magSub = `FEATURING ${entries.length} CAPTURES • ${dateStr}`;
+
     outCtx.fillStyle = "#ffffff";
-    outCtx.font = "800 18px 'Inter', sans-serif";
     outCtx.textAlign = "left";
     outCtx.textBaseline = "top";
-    outCtx.fillText(titleText.toUpperCase(), 28, totalH - 68);
+    const drawMagTitle = fitText(outCtx, magTitle, textMaxW, 18, 11, "800", "'Inter', sans-serif");
+    outCtx.fillText(drawMagTitle, 28, footerTop);
 
     outCtx.fillStyle = getAccentTwoColor();
-    outCtx.font = "700 11px 'IBM Plex Mono', monospace";
-    outCtx.fillText(`FEATURING ${entries.length} CAPTURES • ${dateStr}`, 28, totalH - 40);
+    const drawMagSub = fitText(outCtx, magSub, textMaxW, 11, 8, "700", "'IBM Plex Mono', monospace");
+    outCtx.fillText(drawMagSub, 28, footerTop + 26);
 
-    drawBarcodeGraphic(outCtx, totalW - 110, totalH - 68, 85, 48, false);
+    drawShareQr(outCtx, qrX, qrY, qrSize);
+    outCtx.fillStyle = getAccentTwoColor();
+    outCtx.font = "700 10px 'IBM Plex Mono', monospace";
+    outCtx.textAlign = "center";
+    outCtx.textBaseline = "top";
+    outCtx.fillText("SCAN TO PLAY", qrX + qrSize / 2, qrY + qrSize + 8);
 
     return out;
   }
@@ -452,7 +862,9 @@ function renderLayoutCanvas(entries, layout = "strip", frameIndex = 0) {
     const halfW = Math.round(targetW * 0.7);
     const halfH = Math.round(targetH * 0.7);
     const totalW = pad * 2 + halfW * 2 + gap;
-    const totalH = pad * 2 + halfH * 2 + gap + 60;
+    const qrSize = Math.min(140, Math.max(72, Math.round(totalW * 0.24)));
+    const footerH = 40 + qrSize;
+    const totalH = pad * 2 + halfH * 2 + gap + footerH;
 
     const out = document.createElement("canvas");
     out.width = totalW;
@@ -477,17 +889,26 @@ function renderLayoutCanvas(entries, layout = "strip", frameIndex = 0) {
       outCtx.strokeRect(pos.x, pos.y, halfW, halfH);
     });
 
+    const qrX = totalW - pad - qrSize;
+    const qrY = totalH - 26 - qrSize;
+    const textMaxW = Math.max(40, qrX - pad - 16);
+
     outCtx.fillStyle = "#111422";
-    outCtx.font = "800 20px 'IBM Plex Mono', monospace";
     outCtx.textAlign = "left";
     outCtx.textBaseline = "top";
-    outCtx.fillText(titleText, pad, totalH - 46);
+    const drawTitle = fitText(outCtx, titleText, textMaxW, 20, 12, "800", "'IBM Plex Mono', monospace");
+    outCtx.fillText(drawTitle, pad, qrY + 8);
 
     outCtx.fillStyle = "#667085";
-    outCtx.font = "600 12px 'IBM Plex Mono', monospace";
-    outCtx.fillText(dateStr, pad, totalH - 22);
+    const drawDate = fitText(outCtx, dateStr, textMaxW, 12, 9, "600", "'IBM Plex Mono', monospace");
+    outCtx.fillText(drawDate, pad, qrY + 36);
 
-    drawBarcodeGraphic(outCtx, totalW - pad - 90, totalH - 50, 90, 36, true);
+    drawShareQr(outCtx, qrX, qrY, qrSize);
+    outCtx.fillStyle = "#667085";
+    outCtx.font = "700 10px 'IBM Plex Mono', monospace";
+    outCtx.textAlign = "center";
+    outCtx.textBaseline = "top";
+    outCtx.fillText("SCAN TO PLAY", qrX + qrSize / 2, qrY + qrSize + 7);
 
     return out;
   }
@@ -499,13 +920,16 @@ function renderLayoutCanvas(entries, layout = "strip", frameIndex = 0) {
     Math.round(entry.frameCanvas.height * (targetW / entry.frameCanvas.width))
   );
 
+  const totalW = targetW + border * 2;
+  const qrSize = Math.min(150, Math.max(76, Math.round(totalW * 0.28)));
+  const footerH = 44 + qrSize;
+
   const totalH =
     border * 2 +
     38 +
     scaledHeights.reduce((sum, h) => sum + h, 0) +
     gap * (activeEntries.length - 1) +
-    40;
-  const totalW = targetW + border * 2;
+    footerH;
 
   const stripCanvas = document.createElement("canvas");
   stripCanvas.width = totalW;
@@ -535,7 +959,35 @@ function renderLayoutCanvas(entries, layout = "strip", frameIndex = 0) {
     cursorY += h + gap;
   });
 
-  drawBarcodeGraphic(stripCtx, border, totalH - 32, totalW - border * 2, 22, true);
+  const qrX = totalW - border - qrSize;
+  const qrY = totalH - 34 - qrSize;
+  const textMaxW = Math.max(40, qrX - border - 20);
+
+  stripCtx.textAlign = "left";
+  stripCtx.textBaseline = "top";
+  if (lastSolve) {
+    const head = `BEST ${formatDuration(lastSolve.elapsedMs)} • ${lastSolve.moves} MOVES`;
+    stripCtx.fillStyle = "#10131f";
+    const drawHead = fitText(stripCtx, head, textMaxW, 20, 11, "800", "'Inter', sans-serif");
+    stripCtx.fillText(drawHead, border, qrY + 8);
+    stripCtx.fillStyle = "#667085";
+    stripCtx.font = "600 11px 'IBM Plex Mono', monospace";
+    stripCtx.fillText("beat my time on puzzle.cam", border, qrY + 36);
+  } else {
+    stripCtx.fillStyle = "#10131f";
+    const drawHead = fitText(stripCtx, "PUZZLECAM", textMaxW, 20, 11, "800", "'Inter', sans-serif");
+    stripCtx.fillText(drawHead, border, qrY + 8);
+    stripCtx.fillStyle = "#667085";
+    stripCtx.font = "600 11px 'IBM Plex Mono', monospace";
+    stripCtx.fillText("gesture photobooth strip", border, qrY + 36);
+  }
+
+  drawShareQr(stripCtx, qrX, qrY, qrSize);
+  stripCtx.fillStyle = "#667085";
+  stripCtx.font = "700 10px 'IBM Plex Mono', monospace";
+  stripCtx.textAlign = "center";
+  stripCtx.textBaseline = "top";
+  stripCtx.fillText("SCAN TO PLAY", qrX + qrSize / 2, qrY + qrSize + 7);
 
   return stripCanvas;
 }
@@ -757,6 +1209,7 @@ async function copyPhotoToClipboard() {
 }
 
 function resetEverything() {
+  discardSolveRecording();
   galleryEntries.length = 0;
   galleryStrip.innerHTML = "";
   galleryCount.textContent = `0 / ${STRIP_MAX_PHOTOS}`;
@@ -765,6 +1218,9 @@ function resetEverything() {
     galleryStrip.appendChild(galleryEmpty);
   }
   hideStripComplete();
+  challenge.active = null;
+  lastSolve = null;
+  updateChallengeChip();
   updateStripDownloadAvailability();
   resetPuzzleOnly();
   statusText.textContent = "all reset";
@@ -1095,14 +1551,6 @@ function applyPhotoboothEffect(imageData) {
   return imageData;
 }
 
-function shuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
 function finishCountdownAndCapture(box) {
   countdown.active = false;
 
@@ -1174,13 +1622,17 @@ function finishCountdownAndCapture(box) {
     }
   }
 
+  const seed = puzzle.nextSeed != null ? puzzle.nextSeed : randomSeed();
+  puzzle.nextSeed = null;
+  puzzle.seed = seed;
+
   const slots = [];
   for (let row = 0; row < GRID; row++) {
     for (let col = 0; col < GRID; col++) {
       slots.push({ x: box.x + col * tileW, y: box.y + row * tileH });
     }
   }
-  shuffle(slots);
+  shuffleWithRng(slots, mulberry32(seed));
 
   pieces.forEach((piece, i) => {
     piece.x = slots[i].x;
@@ -1195,8 +1647,13 @@ function finishCountdownAndCapture(box) {
   puzzle.tileW = tileW;
   puzzle.tileH = tileH;
   puzzle.solved = pieces.every((p) => p.placed);
+  puzzle.startedAt = performance.now();
+  puzzle.elapsedMs = 0;
+  puzzle.moves = 0;
+  puzzle.solveRecorded = false;
   appState = "puzzle";
   fistHoldCounter = 0;
+  startSolveRecording();
   updateProgressBadge();
 }
 
@@ -1375,32 +1832,34 @@ function settleDroppedPiece(piece) {
   const target = pieceCell(piece, box, tileW, tileH);
   piece.dragOrigin = null;
 
-  // Landed on its own cell → snap home and lock.
   if (target.row === piece.row && target.col === piece.col) {
+    // Landed on its own cell → snap home and lock.
     snapPieceToCell(piece, box, tileW, tileH);
-    return;
-  }
+  } else {
+    const occupant = pieceInCell(target.row, target.col, box, tileW, tileH, piece);
 
-  const occupant = pieceInCell(target.row, target.col, box, tileW, tileH, piece);
-
-  // A locked piece owns the target cell → send this piece back where it started.
-  if (occupant && occupant.placed) {
-    placePieceInCell(piece, origin.row, origin.col, box, tileW, tileH);
-    return;
-  }
-
-  // Swap with the loose occupant so the origin cell stays filled.
-  if (occupant) {
-    occupant.placed = false;
-    if (occupant.row === origin.row && occupant.col === origin.col) {
-      snapPieceToCell(occupant, box, tileW, tileH);
+    if (occupant && occupant.placed) {
+      // A locked piece owns the target cell → send this piece back where it started.
+      placePieceInCell(piece, origin.row, origin.col, box, tileW, tileH);
     } else {
-      placePieceInCell(occupant, origin.row, origin.col, box, tileW, tileH);
+      // Swap with the loose occupant so the origin cell stays filled.
+      if (occupant) {
+        occupant.placed = false;
+        if (occupant.row === origin.row && occupant.col === origin.col) {
+          snapPieceToCell(occupant, box, tileW, tileH);
+        } else {
+          placePieceInCell(occupant, origin.row, origin.col, box, tileW, tileH);
+        }
+      }
+      placePieceInCell(piece, target.row, target.col, box, tileW, tileH);
+      piece.placed = false;
     }
   }
 
-  placePieceInCell(piece, target.row, target.col, box, tileW, tileH);
-  piece.placed = false;
+  const finalCell = pieceCell(piece, box, tileW, tileH);
+  if (finalCell.row !== origin.row || finalCell.col !== origin.col) {
+    puzzle.moves = (puzzle.moves || 0) + 1;
+  }
 }
 
 function handleDragForHand(handLabel, pinching, indexPx) {
@@ -1543,9 +2002,11 @@ function updateProgressBadge() {
     return;
   }
   const placedCount = puzzle.pieces.filter((p) => p.placed).length;
-  progressText.textContent = `${placedCount} / ${puzzle.pieces.length} pieces placed`;
+  const clock = puzzle.startedAt ? ` • ${formatDuration(performance.now() - puzzle.startedAt)}` : "";
+  progressText.textContent = `${placedCount} / ${puzzle.pieces.length} pieces • ${puzzle.moves} moves${clock}`;
   progressBadge.classList.add("visible");
   progressBadge.classList.toggle("solved", puzzle.solved);
+  recordSolveIfNeeded();
 }
 
 function drawVideoFrame() {
@@ -1841,11 +2302,14 @@ function finishShatter() {
   shatter.active = false;
   shatter.fragments = [];
   if (shatter.pendingCanvas) {
-    addToGallery(shatter.pendingCanvas, shatter.pendingFrames);
+    const entry = addToGallery(shatter.pendingCanvas, shatter.pendingFrames);
+    stopSolveRecording(entry);
     statusText.textContent = "saved to strip";
     showToast("Saved to strip! 📸");
     shatter.pendingCanvas = null;
     shatter.pendingFrames = null;
+  } else {
+    discardSolveRecording();
   }
   resetPuzzleOnly();
 }
@@ -1865,6 +2329,7 @@ function handleFistReset() {
     startShatter(puzzle.fullPhotoboothCanvas, puzzle.boardBox, puzzle.boomerangFrames);
   } else {
     statusText.textContent = "reset by fist";
+    discardSolveRecording();
     resetPuzzleOnly();
   }
 }
@@ -2088,6 +2553,14 @@ if (stripTitleInput) {
 applyTheme(settings.theme);
 applyBackgroundFx(settings.backgroundFx);
 
+if (recordSolvesToggle) recordSolvesToggle.checked = settings.recordSolves;
+
+const incomingChallenge = readChallengeFromUrl();
+if (incomingChallenge) {
+  applyChallenge(incomingChallenge);
+}
+updateChallengeChip();
+
 async function boot() {
   resetLoaderUI();
 
@@ -2158,6 +2631,17 @@ if (liveMotionToggle) {
   });
 }
 
+if (recordSolvesToggle) {
+  recordSolvesToggle.addEventListener("change", () => {
+    settings.recordSolves = recordSolvesToggle.checked;
+    if (!settings.recordSolves) {
+      discardSolveRecording();
+    } else if (appState === "puzzle") {
+      startSolveRecording();
+    }
+  });
+}
+
 if (downloadStripBtn) {
   downloadStripBtn.addEventListener("click", downloadPhotoStrip);
 }
@@ -2169,6 +2653,39 @@ if (downloadGifBtn) {
 if (copyClipboardBtn) {
   copyClipboardBtn.addEventListener("click", copyPhotoToClipboard);
 }
+
+if (downloadVideoBtn) {
+  downloadVideoBtn.addEventListener("click", downloadSolveVideo);
+}
+
+if (shareChallengeBtn) {
+  shareChallengeBtn.addEventListener("click", shareChallenge);
+}
+
+if (qrCloseBtn) {
+  qrCloseBtn.addEventListener("click", hideQrOverlay);
+}
+
+if (qrCopyBtn) {
+  qrCopyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(buildShareUrl());
+      showToast("Link copied! 🔗");
+    } catch (err) {
+      showToast("Could not copy the link");
+    }
+  });
+}
+
+if (qrOverlay) {
+  qrOverlay.addEventListener("click", (evt) => {
+    if (evt.target === qrOverlay) hideQrOverlay();
+  });
+}
+
+document.addEventListener("keydown", (evt) => {
+  if (evt.key === "Escape") hideQrOverlay();
+});
 
 updateStripDownloadAvailability();
 
